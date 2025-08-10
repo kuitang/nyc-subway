@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/csv"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -400,4 +401,194 @@ func TestDeparturesForStopsArrivalOnly(t *testing.T) {
 	if len(deps) != 1 {
 		t.Errorf("expected 1 departure with arrival-only time, got %d", len(deps))
 	}
+}
+
+// Test parseLatLon helper function
+func TestParseLatLon(t *testing.T) {
+	tests := []struct {
+		name        string
+		lat         string
+		lon         string
+		expectError bool
+		expectedLat float64
+		expectedLon float64
+	}{
+		{
+			name:        "valid coordinates",
+			lat:         "40.7580",
+			lon:         "-73.9855",
+			expectError: false,
+			expectedLat: 40.7580,
+			expectedLon: -73.9855,
+		},
+		{
+			name:        "missing lat",
+			lat:         "",
+			lon:         "-73.9855",
+			expectError: true,
+		},
+		{
+			name:        "missing lon",
+			lat:         "40.7580",
+			lon:         "",
+			expectError: true,
+		},
+		{
+			name:        "invalid lat",
+			lat:         "invalid",
+			lon:         "-73.9855",
+			expectError: true,
+		},
+		{
+			name:        "invalid lon",
+			lat:         "40.7580",
+			lon:         "invalid",
+			expectError: true,
+		},
+		{
+			name:        "both missing",
+			lat:         "",
+			lon:         "",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/?lat="+tt.lat+"&lon="+tt.lon, nil)
+			lat, lon, err := parseLatLon(req)
+			
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("expected error but got none")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				if lat != tt.expectedLat {
+					t.Errorf("expected lat %.4f, got %.4f", tt.expectedLat, lat)
+				}
+				if lon != tt.expectedLon {
+					t.Errorf("expected lon %.4f, got %.4f", tt.expectedLon, lon)
+				}
+			}
+		})
+	}
+}
+
+// Test baseStopID helper function
+func TestBaseStopID(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"123N", "123"},
+		{"456S", "456"},
+		{"789E", "789"},
+		{"101W", "101"},
+		{"635", "635"},
+		{"", ""},
+		{"123n", "123"},
+		{"456s", "456"},
+		{"A12N", "A12"},
+		{"R14S", "R14"},
+		{"123X", "123"},
+		{"4567", "4567"},
+		{"A", ""},
+		{"1", "1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := baseStopID(tt.input)
+			if result != tt.expected {
+				t.Errorf("baseStopID(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+// Test parseCSVHeaders helper function
+func TestParseCSVHeaders(t *testing.T) {
+	t.Run("valid headers for stations", func(t *testing.T) {
+		csvData := `"GTFS Stop ID","Stop Name","GTFS Latitude","GTFS Longitude"
+"123N","Test Station","40.7580","-73.9855"`
+		reader := csv.NewReader(strings.NewReader(csvData))
+		reader.FieldsPerRecord = -1
+		
+		needed := []string{"gtfsstopid", "stopname", "gtfslatitude", "gtfslongitude"}
+		idx, err := parseCSVHeaders(reader, needed, "stations")
+		
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		
+		// Verify all needed columns are mapped
+		for _, col := range needed {
+			if _, ok := idx[col]; !ok {
+				t.Errorf("column %s not found in index", col)
+			}
+		}
+		
+		// Verify correct mappings
+		if idx["gtfsstopid"] != 0 {
+			t.Errorf("expected gtfsstopid at index 0, got %d", idx["gtfsstopid"])
+		}
+		if idx["stopname"] != 1 {
+			t.Errorf("expected stopname at index 1, got %d", idx["stopname"])
+		}
+	})
+	
+	t.Run("valid headers for trips", func(t *testing.T) {
+		csvData := `route_id,trip_id,service_id,trip_headsign,direction_id
+6,trip1,Weekday,Manhattan,0`
+		reader := csv.NewReader(strings.NewReader(csvData))
+		reader.FieldsPerRecord = -1
+		
+		// For trips, the function now preserves underscores (just toLowerCase + trim)
+		needed := []string{"route_id", "trip_id", "service_id", "trip_headsign", "direction_id"}
+		idx, err := parseCSVHeaders(reader, needed, "trips")
+		
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		
+		// Verify all needed columns are mapped
+		for _, col := range needed {
+			if _, ok := idx[col]; !ok {
+				t.Errorf("column %s not found in index", col)
+			}
+		}
+	})
+	
+	t.Run("missing required column", func(t *testing.T) {
+		csvData := `"Wrong Column 1","Wrong Column 2"
+"value1","value2"`
+		reader := csv.NewReader(strings.NewReader(csvData))
+		reader.FieldsPerRecord = -1
+		
+		needed := []string{"gtfsstopid", "stopname", "gtfslatitude", "gtfslongitude"}
+		_, err := parseCSVHeaders(reader, needed, "stations")
+		
+		if err == nil {
+			t.Error("expected error for missing required column")
+		}
+		if !strings.Contains(err.Error(), "missing column") {
+			t.Errorf("expected 'missing column' error, got: %v", err)
+		}
+	})
+	
+	t.Run("read error", func(t *testing.T) {
+		// Create a reader that will fail on first read
+		reader := csv.NewReader(strings.NewReader(""))
+		reader.FieldsPerRecord = -1
+		
+		needed := []string{"gtfsstopid"}
+		_, err := parseCSVHeaders(reader, needed, "stations")
+		
+		if err == nil {
+			t.Error("expected error for empty CSV")
+		}
+	})
 }

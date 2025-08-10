@@ -153,16 +153,9 @@ func handleStops(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleNearest(w http.ResponseWriter, r *http.Request) {
-	latStr := r.URL.Query().Get("lat")
-	lonStr := r.URL.Query().Get("lon")
-	if latStr == "" || lonStr == "" {
-		httpError(w, http.StatusBadRequest, "missing lat or lon")
-		return
-	}
-	lat, err1 := strconv.ParseFloat(latStr, 64)
-	lon, err2 := strconv.ParseFloat(lonStr, 64)
-	if err1 != nil || err2 != nil {
-		httpError(w, http.StatusBadRequest, "invalid lat or lon")
+	lat, lon, err := parseLatLon(r)
+	if err != nil {
+		httpError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if outsideNYC(lat, lon) {
@@ -302,19 +295,9 @@ func departuresForStops(sts []Station) ([]Departure, error) {
 	// Build sets for exact stop IDs and their "base" IDs (without trailing direction letter).
 	stopExact := map[string]struct{}{}
 	stopBase := map[string]struct{}{}
-	base := func(id string) string {
-		if id == "" {
-			return id
-		}
-		last := id[len(id)-1]
-		if (last >= 'A' && last <= 'Z') || (last >= 'a' && last <= 'z') {
-			return id[:len(id)-1]
-		}
-		return id
-	}
 	for _, s := range sts {
 		stopExact[s.StopID] = struct{}{}
-		stopBase[base(s.StopID)] = struct{}{}
+		stopBase[baseStopID(s.StopID)] = struct{}{}
 	}
 
 	now := time.Now().Unix()
@@ -344,7 +327,7 @@ func departuresForStops(sts []Station) ([]Departure, error) {
 
 				// Match against exact stop ID OR base stop ID (handles N/S/E/W suffix in GTFS-RT).
 				if _, ok := stopExact[stopID]; !ok {
-					if _, ok2 := stopBase[base(stopID)]; !ok2 {
+					if _, ok2 := stopBase[baseStopID(stopID)]; !ok2 {
 						continue
 					}
 				}
@@ -445,29 +428,11 @@ func loadStations(ctx context.Context, csvURL string) error {
 	r := csv.NewReader(resp.Body)
 	r.FieldsPerRecord = -1
 
-	headers, err := r.Read()
-	if err != nil {
-		return fmt.Errorf("read stations header: %w", err)
-	}
-	// Print headers (raw and normalized) for debugging/visibility.
-	log.Printf("stations csv header (raw): %q", headers)
-	idx := map[string]int{}
-	for i, h := range headers {
-		key := normalizeHeader(h)
-		idx[key] = i
-	}
 	// NOTE: column keys use "gtfs", not "gtsf".
 	need := []string{"gtfsstopid", "stopname", "gtfslatitude", "gtfslongitude"}
-	var normKeys []string
-	for k := range idx {
-		normKeys = append(normKeys, k)
-	}
-	sort.Strings(normKeys)
-	log.Printf("stations csv header (normalized): %s", strings.Join(normKeys, ", "))
-	for _, k := range need {
-		if _, ok := idx[k]; !ok {
-			return fmt.Errorf("stations csv missing column '%s'", k)
-		}
+	idx, err := parseCSVHeaders(r, need, "stations")
+	if err != nil {
+		return err
 	}
 
 	var out []Station
@@ -536,21 +501,10 @@ func loadTrips(ctx context.Context, zipURL string) error {
 	r := csv.NewReader(rc)
 	r.FieldsPerRecord = -1
 
-	headers, err := r.Read()
-	if err != nil {
-		return fmt.Errorf("read trips header: %w", err)
-	}
-
-	idx := map[string]int{}
-	for i, h := range headers {
-		idx[strings.ToLower(strings.TrimSpace(h))] = i
-	}
-
 	need := []string{"route_id", "trip_id", "service_id", "trip_headsign", "direction_id"}
-	for _, k := range need {
-		if _, ok := idx[k]; !ok {
-			return fmt.Errorf("trips.txt missing column '%s'", k)
-		}
+	idx, err := parseCSVHeaders(r, need, "trips")
+	if err != nil {
+		return err
 	}
 
 	var out []Trip
@@ -576,6 +530,64 @@ func loadTrips(ctx context.Context, zipURL string) error {
 	trips = out
 	log.Printf("Loaded %d trips from GTFS data", len(trips))
 	return nil
+}
+
+func parseLatLon(r *http.Request) (float64, float64, error) {
+	latStr := r.URL.Query().Get("lat")
+	lonStr := r.URL.Query().Get("lon")
+	if latStr == "" || lonStr == "" {
+		return 0, 0, fmt.Errorf("missing lat or lon")
+	}
+	lat, err1 := strconv.ParseFloat(latStr, 64)
+	lon, err2 := strconv.ParseFloat(lonStr, 64)
+	if err1 != nil || err2 != nil {
+		return 0, 0, fmt.Errorf("invalid lat or lon")
+	}
+	return lat, lon, nil
+}
+
+func baseStopID(id string) string {
+	if id == "" {
+		return id
+	}
+	last := id[len(id)-1]
+	if (last >= 'A' && last <= 'Z') || (last >= 'a' && last <= 'z') {
+		return id[:len(id)-1]
+	}
+	return id
+}
+
+func parseCSVHeaders(r *csv.Reader, needed []string, source string) (map[string]int, error) {
+	headers, err := r.Read()
+	if err != nil {
+		return nil, fmt.Errorf("read %s header: %w", source, err)
+	}
+	log.Printf("%s csv header (raw): %q", source, headers)
+	
+	idx := map[string]int{}
+	for i, h := range headers {
+		var key string
+		if source == "trips" {
+			key = strings.ToLower(strings.TrimSpace(h))
+		} else {
+			key = normalizeHeader(h)
+		}
+		idx[key] = i
+	}
+	
+	var normKeys []string
+	for k := range idx {
+		normKeys = append(normKeys, k)
+	}
+	sort.Strings(normKeys)
+	log.Printf("%s csv header (normalized): %s", source, strings.Join(normKeys, ", "))
+	
+	for _, k := range needed {
+		if _, ok := idx[k]; !ok {
+			return nil, fmt.Errorf("%s csv missing column '%s'", source, k)
+		}
+	}
+	return idx, nil
 }
 
 func lookupHeadsign(tripID string) string {
