@@ -355,8 +355,6 @@ func departuresForStops(sts []Station) ([]Departure, error) {
 				}
 				etaSec := t - now
 
-				headsign := lookupHeadsign(tripID)
-
 				deps = append(deps, Departure{
 					RouteID:    routeID,
 					StopID:     stopID,
@@ -365,7 +363,7 @@ func departuresForStops(sts []Station) ([]Departure, error) {
 					ETASeconds: etaSec,
 					ETAMinutes: etaSec / 60,
 					TripID:     tripID,
-					HeadSign:   headsign,
+					HeadSign:   "",
 				})
 			}
 		}
@@ -375,6 +373,11 @@ func departuresForStops(sts []Station) ([]Departure, error) {
 	
 	// Limit to 2 departures per route and direction
 	deps = limitDeparturesByRouteAndDirection(deps)
+	
+	// Fill in headsigns for the filtered departures
+	for i := range deps {
+		deps[i].HeadSign = lookupHeadsign(deps[i].TripID)
+	}
 	
 	log.Printf("departuresForStops produced %d departures (after filtering)", len(deps))
 	return deps, nil
