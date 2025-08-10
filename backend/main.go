@@ -24,6 +24,7 @@
 package main
 
 import (
+	"archive/zip"
 	"context"
 	"encoding/csv"
 	"encoding/json"
@@ -72,9 +73,18 @@ type WalkResult struct {
 	Distance float64 `json:"meters"`
 }
 
+type Trip struct {
+	RouteID     string
+	TripID      string
+	ServiceID   string
+	TripHeadsign string
+	DirectionID string
+}
+
 
 var (
 	stations   []Station
+	trips      []Trip
 	httpClient = &http.Client{Timeout: 12 * time.Second}
 	// NYC area bounding box (coarse)
 	minLat, maxLat = 40.3, 41.1
@@ -94,6 +104,7 @@ var (
 
 	// Default stations CSV from NY Open Data (no token needed)
 	stationsCSV = "https://data.ny.gov/api/views/39hk-dx4f/rows.csv?accessType=DOWNLOAD"
+	gtfsZipURL = "http://web.mta.info/developers/data/nyct/subway/google_transit.zip"
 )
 
 func main() {
@@ -109,6 +120,12 @@ func main() {
 
 	// Log full list of stations as requested
 	log.Printf("Loaded %d stations", len(stations))
+
+	if err := loadTrips(context.Background(), gtfsZipURL); err != nil {
+		log.Printf("Warning: failed to load GTFS trips data: %v", err)
+	} else {
+		log.Printf("Loaded %d trips", len(trips))
+	}
 
 
 	mux := http.NewServeMux()
@@ -355,6 +372,8 @@ func departuresForStops(sts []Station) ([]Departure, error) {
 				}
 				etaSec := t - now
 
+				headsign := lookupHeadsign(tripID)
+
 				deps = append(deps, Departure{
 					RouteID:    routeID,
 					StopID:     stopID,
@@ -363,7 +382,7 @@ func departuresForStops(sts []Station) ([]Departure, error) {
 					ETASeconds: etaSec,
 					ETAMinutes: etaSec / 60,
 					TripID:     tripID,
-					HeadSign:   "",
+					HeadSign:   headsign,
 				})
 			}
 		}
@@ -477,4 +496,125 @@ func normalizeHeader(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	replacer := strings.NewReplacer(" ", "", "_", "", "-", "", "/", "", ".", "")
 	return replacer.Replace(s)
+}
+
+func loadTrips(ctx context.Context, zipURL string) error {
+	req, _ := http.NewRequestWithContext(ctx, "GET", zipURL, nil)
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("download GTFS zip: %w", err)
+	}
+	defer resp.Body.Close()
+
+	zipData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read GTFS zip: %w", err)
+	}
+
+	zipReader, err := zip.NewReader(strings.NewReader(string(zipData)), int64(len(zipData)))
+	if err != nil {
+		return fmt.Errorf("open GTFS zip: %w", err)
+	}
+
+	var tripsFile *zip.File
+	for _, f := range zipReader.File {
+		if f.Name == "trips.txt" {
+			tripsFile = f
+			break
+		}
+	}
+	if tripsFile == nil {
+		return fmt.Errorf("trips.txt not found in GTFS zip")
+	}
+
+	rc, err := tripsFile.Open()
+	if err != nil {
+		return fmt.Errorf("open trips.txt: %w", err)
+	}
+	defer rc.Close()
+
+	r := csv.NewReader(rc)
+	r.FieldsPerRecord = -1
+
+	headers, err := r.Read()
+	if err != nil {
+		return fmt.Errorf("read trips header: %w", err)
+	}
+
+	idx := map[string]int{}
+	for i, h := range headers {
+		idx[strings.ToLower(strings.TrimSpace(h))] = i
+	}
+
+	need := []string{"route_id", "trip_id", "service_id", "trip_headsign", "direction_id"}
+	for _, k := range need {
+		if _, ok := idx[k]; !ok {
+			return fmt.Errorf("trips.txt missing column '%s'", k)
+		}
+	}
+
+	var out []Trip
+	for {
+		row, err := r.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("read trips row: %w", err)
+		}
+
+		trip := Trip{
+			RouteID:      row[idx["route_id"]],
+			TripID:       row[idx["trip_id"]],
+			ServiceID:    row[idx["service_id"]],
+			TripHeadsign: row[idx["trip_headsign"]],
+			DirectionID:  row[idx["direction_id"]],
+		}
+		out = append(out, trip)
+	}
+
+	trips = out
+	log.Printf("Loaded %d trips from GTFS data", len(trips))
+	return nil
+}
+
+func lookupHeadsign(tripID string) string {
+	if tripID == "" || len(trips) == 0 {
+		return ""
+	}
+
+	// Get current day of week
+	now := time.Now()
+	dayOfWeek := now.Weekday()
+	var service string
+	switch dayOfWeek {
+	case time.Sunday:
+		service = "Sunday"
+	case time.Saturday:
+		service = "Saturday"
+	default:
+		service = "Weekday"
+	}
+
+	// Find matching trips where tripID from GTFS-RT is a substring of trip_id from trips.txt
+	var matches []Trip
+	for _, trip := range trips {
+		if strings.Contains(trip.TripID, tripID) {
+			matches = append(matches, trip)
+		}
+	}
+
+	if len(matches) == 0 {
+		return ""
+	}
+
+	// If multiple matches, prefer the one matching today's service
+	for _, match := range matches {
+		if match.ServiceID == service {
+			return match.TripHeadsign
+		}
+	}
+
+	// If no service match, return first match
+	return matches[0].TripHeadsign
 }
