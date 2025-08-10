@@ -1,0 +1,48 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>NYC subway departures (nearest stop)</title>
+  </head>
+  <body>
+    <h1>NYC subway departures (nearest stop)</h1>
+    <div id="status">Requesting your location…</div>
+    <pre id="output"></pre>
+
+    <script>
+      function q(sel) { return document.querySelector(sel); }
+      function show(obj) { q('#output').textContent = JSON.stringify(obj, null, 2); }
+
+      function getNearest(lat, lon) {
+        const url = `/api/departures/nearest?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`;
+        fetch(url)
+          .then(r => r.json())
+          .then(data => {
+            q('#status').textContent = '';
+            show(data);
+          })
+          .catch(err => {
+            q('#status').textContent = 'Error fetching departures.';
+            show({ error: String(err) });
+          });
+      }
+
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          pos => {
+            q('#status').textContent = 'Fetching departures…';
+            const { latitude, longitude } = pos.coords;
+            getNearest(latitude, longitude);
+          },
+          err => {
+            q('#status').textContent = 'Location denied or unavailable.';
+          },
+          { enableHighAccuracy: true, maximumAge: 30000, timeout: 15000 }
+        );
+      } else {
+        q('#status').textContent = 'Geolocation not supported in this browser.';
+      }
+    </script>
+  </body>
+</html>
+
