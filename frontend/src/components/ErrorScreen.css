@@ -1,0 +1,80 @@
+.error-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #000;
+  color: #fff;
+}
+
+.error-content {
+  text-align: center;
+  padding: 2rem;
+  max-width: 400px;
+}
+
+.error-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+.error-content h2 {
+  font-size: 2rem;
+  font-weight: 600;
+  margin: 0 0 1rem 0;
+  color: #0039A6; /* MTA Blue */
+}
+
+.error-message {
+  font-size: 1.1rem;
+  margin: 0 0 2rem 0;
+  color: #C8C9CA;
+  line-height: 1.5;
+}
+
+.retry-button {
+  background-color: #0039A6;
+  color: #fff;
+  border: none;
+  padding: 12px 24px;
+  font-size: 1rem;
+  font-weight: 500;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  font-family: inherit;
+}
+
+.retry-button:hover {
+  background-color: #002f7f;
+}
+
+.retry-button:active {
+  background-color: #001f5a;
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+  .error-content {
+    padding: 1rem;
+  }
+  
+  .error-content h2 {
+    font-size: 1.6rem;
+  }
+  
+  .error-message {
+    font-size: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .error-content h2 {
+    font-size: 1.4rem;
+  }
+  
+  .retry-button {
+    padding: 10px 20px;
+    font-size: 0.9rem;
+  }
+}

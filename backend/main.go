@@ -24,6 +24,8 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/csv"
 	"encoding/json"
@@ -72,8 +74,22 @@ type WalkResult struct {
 	Distance float64 `json:"meters"`
 }
 
+type GTFSCache struct {
+	HeadSigns map[string]string
+	LoadedAt  time.Time
+	TTL       time.Duration
+}
+
+func (c *GTFSCache) IsExpired() bool {
+	return time.Since(c.LoadedAt) > c.TTL
+}
+
 var (
 	stations   []Station
+	gtfsCache  = &GTFSCache{
+		HeadSigns: make(map[string]string),
+		TTL:       24 * time.Hour,
+	}
 	httpClient = &http.Client{Timeout: 12 * time.Second}
 	// NYC area bounding box (coarse)
 	minLat, maxLat = 40.3, 41.1
@@ -93,6 +109,8 @@ var (
 
 	// Default stations CSV from NY Open Data (no token needed)
 	stationsCSV = "https://data.ny.gov/api/views/39hk-dx4f/rows.csv?accessType=DOWNLOAD"
+	// Static GTFS data for trip headsigns
+	gtfsStaticURL = "http://web.mta.info/developers/data/nyct/subway/google_transit.zip"
 )
 
 func main() {
@@ -112,11 +130,18 @@ func main() {
 		log.Printf("[%d] StopID=%s Name=%s Lat=%.6f Lon=%.6f", i, s.StopID, s.Name, s.Lat, s.Lon)
 	}
 
+	if err := ensureTripHeadsigns(context.Background()); err != nil {
+		log.Printf("Warning: Failed to load trip headsigns: %v", err)
+		log.Printf("Will continue without headsign data (direction fallback will be used)")
+	} else {
+		log.Printf("Loaded %d trip headsigns (cache expires in %.1f hours)", 
+			len(gtfsCache.HeadSigns), gtfsCache.TTL.Hours())
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/stops", withCORS(handleStops))
 	mux.HandleFunc("/api/departures/nearest", withCORS(handleNearest))
 	mux.HandleFunc("/api/departures/by-name", withCORS(handleByName))
-	mux.HandleFunc("/", withCORS(serveIndex)) // convenience for static frontend
 
 	addr := ":8080"
 	log.Printf("Listening on %s", addr)
@@ -132,10 +157,6 @@ func withCORS(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func serveIndex(w http.ResponseWriter, r *http.Request) {
-	// Serves the minimal frontend if placed at frontend/index.html
-	http.ServeFile(w, r, "frontend/index.html")
-}
 
 func handleStops(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, stations)
@@ -322,9 +343,14 @@ func departuresForStops(sts []Station) ([]Departure, error) {
 			}
 			routeID := ""
 			tripID := ""
+			headsign := ""
 			if td := tu.GetTrip(); td != nil {
 				routeID = td.GetRouteId()
 				tripID = td.GetTripId()
+				// TODO: Extract headsign from NYCT extensions when available
+				// The standard GTFS-RT protobuf doesn't include trip_headsign
+				// We need NYCT-specific extensions for this
+				headsign = extractHeadsignFromTrip(td)
 			}
 
 			// IMPORTANT: translate and append within the same loop that iterates stop time updates.
@@ -368,6 +394,7 @@ func departuresForStops(sts []Station) ([]Departure, error) {
 					ETASeconds: etaSec,
 					ETAMinutes: etaSec / 60,
 					TripID:     tripID,
+					HeadSign:   headsign,
 				})
 			}
 		}
@@ -397,6 +424,179 @@ func limitDeparturesByRouteAndDirection(deps []Departure) []Departure {
 	}
 	
 	return result
+}
+
+// extractHeadsignFromTrip extracts headsign information using cached GTFS data
+func extractHeadsignFromTrip(trip *gtfs.TripDescriptor) string {
+	if trip == nil {
+		log.Printf("extractHeadsignFromTrip: trip is nil")
+		return ""
+	}
+	
+	tripID := trip.GetTripId()
+	if tripID == "" {
+		log.Printf("extractHeadsignFromTrip: tripID is empty")
+		return ""
+	}
+	
+	log.Printf("extractHeadsignFromTrip: looking up headsign for tripID %s", tripID)
+	
+	// Check cache expiry and refresh if needed
+	if gtfsCache.IsExpired() && len(gtfsCache.HeadSigns) > 0 {
+		log.Printf("extractHeadsignFromTrip: cache expired, refreshing in background")
+		go func() {
+			// Refresh cache in background
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := loadTripHeadsigns(ctx, gtfsStaticURL); err != nil {
+				log.Printf("Background cache refresh failed: %v", err)
+			} else {
+				log.Printf("Background cache refreshed with %d trip headsigns", len(gtfsCache.HeadSigns))
+			}
+		}()
+	}
+	
+	// Lookup headsign from cached GTFS data
+	headsign := gtfsCache.HeadSigns[tripID]
+	if headsign == "" {
+		log.Printf("extractHeadsignFromTrip: no headsign found for tripID %s in cache", tripID)
+	} else {
+		log.Printf("extractHeadsignFromTrip: found headsign %q for tripID %s", headsign, tripID)
+	}
+	return headsign
+}
+
+// ensureTripHeadsigns ensures trip headsigns are loaded, respecting cache TTL
+func ensureTripHeadsigns(ctx context.Context) error {
+	// Check if cache is still valid
+	if !gtfsCache.IsExpired() && len(gtfsCache.HeadSigns) > 0 {
+		log.Printf("Using cached trip headsigns (%d entries, %.1f hours remaining)", 
+			len(gtfsCache.HeadSigns), (gtfsCache.TTL - time.Since(gtfsCache.LoadedAt)).Hours())
+		return nil
+	}
+	
+	return loadTripHeadsigns(ctx, gtfsStaticURL)
+}
+
+func loadTripHeadsigns(ctx context.Context, zipURL string) error {
+	start := time.Now()
+	log.Printf("Downloading static GTFS data from %s", zipURL)
+	
+	req, err := http.NewRequestWithContext(ctx, "GET", zipURL, nil)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("download GTFS ZIP: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download failed with status: %d", resp.StatusCode)
+	}
+	
+	// Read the ZIP file into memory
+	zipData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read ZIP data: %w", err)
+	}
+	log.Printf("Downloaded GTFS ZIP (%d bytes) in %v", len(zipData), time.Since(start))
+	
+	// Open ZIP reader
+	zipReader, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
+	if err != nil {
+		return fmt.Errorf("open ZIP: %w", err)
+	}
+	
+	// Find and read trips.txt
+	var tripsFile *zip.File
+	for _, file := range zipReader.File {
+		if file.Name == "trips.txt" {
+			tripsFile = file
+			break
+		}
+	}
+	
+	if tripsFile == nil {
+		return fmt.Errorf("trips.txt not found in GTFS ZIP")
+	}
+	
+	rc, err := tripsFile.Open()
+	if err != nil {
+		return fmt.Errorf("open trips.txt: %w", err)
+	}
+	defer rc.Close()
+	
+	// Parse trips.txt CSV using proper CSV reader
+	csvReader := csv.NewReader(rc)
+	csvReader.ReuseRecord = true // Memory optimization for large files
+	
+	// Read header row
+	headers, err := csvReader.Read()
+	if err != nil {
+		return fmt.Errorf("read trips.txt header: %w", err)
+	}
+	
+	// Find required column indexes
+	var tripIDCol, headsignCol int = -1, -1
+	for i, header := range headers {
+		switch strings.TrimSpace(header) {
+		case "trip_id":
+			tripIDCol = i
+		case "trip_headsign":
+			headsignCol = i
+		}
+	}
+	
+	if tripIDCol == -1 {
+		return fmt.Errorf("trip_id column not found in trips.txt header: %v", headers)
+	}
+	if headsignCol == -1 {
+		return fmt.Errorf("trip_headsign column not found in trips.txt header: %v", headers)
+	}
+	
+	log.Printf("Found trip_id at column %d, trip_headsign at column %d", tripIDCol, headsignCol)
+	
+	// Create new map for atomic update
+	newHeadsigns := make(map[string]string)
+	count := 0
+	parseStart := time.Now()
+	
+	// Read all data rows
+	for {
+		record, err := csvReader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("read trips.txt row %d: %w", count+2, err) // +2 for header row and 1-indexed
+		}
+		
+		// Validate record length
+		if len(record) <= tripIDCol || len(record) <= headsignCol {
+			continue // Skip rows with insufficient columns
+		}
+		
+		tripID := strings.TrimSpace(record[tripIDCol])
+		headsign := strings.TrimSpace(record[headsignCol])
+		
+		// Only store non-empty headsigns
+		if tripID != "" && headsign != "" {
+			newHeadsigns[tripID] = headsign
+			count++
+		}
+	}
+	
+	// Atomic update of cache
+	gtfsCache.HeadSigns = newHeadsigns
+	gtfsCache.LoadedAt = time.Now()
+	
+	log.Printf("Successfully loaded %d trip headsigns from static GTFS data in %v (parse: %v)", 
+		count, time.Since(start), time.Since(parseStart))
+	
+	return nil
 }
 
 func fetchGTFS(url string) (*gtfs.FeedMessage, error) {

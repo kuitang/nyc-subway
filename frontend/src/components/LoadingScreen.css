@@ -1,0 +1,62 @@
+.loading-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #000;
+  color: #fff;
+}
+
+.loading-content {
+  text-align: center;
+  padding: 2rem;
+}
+
+.loading-content h2 {
+  font-size: 2rem;
+  font-weight: 600;
+  margin: 1rem 0 0.5rem 0;
+  color: #0039A6; /* MTA Blue */
+}
+
+.loading-content p {
+  font-size: 1.1rem;
+  margin: 0;
+  color: #C8C9CA;
+}
+
+.loading-spinner {
+  width: 48px;
+  height: 48px;
+  border: 3px solid #333;
+  border-top: 3px solid #0039A6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 1rem auto;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+  .loading-content h2 {
+    font-size: 1.6rem;
+  }
+  
+  .loading-content p {
+    font-size: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .loading-content {
+    padding: 1rem;
+  }
+  
+  .loading-content h2 {
+    font-size: 1.4rem;
+  }
+}
