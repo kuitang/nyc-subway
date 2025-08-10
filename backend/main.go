@@ -374,11 +374,29 @@ func departuresForStops(sts []Station) ([]Departure, error) {
 	}
 
 	sort.Slice(deps, func(i, j int) bool { return deps[i].UnixTime < deps[j].UnixTime })
-	if len(deps) > 30 {
-		deps = deps[:30]
-	}
+	
+	// Limit to 2 departures per route and direction
+	deps = limitDeparturesByRouteAndDirection(deps)
+	
 	log.Printf("departuresForStops produced %d departures (after filtering)", len(deps))
 	return deps, nil
+}
+
+// limitDeparturesByRouteAndDirection limits departures to at most 2 per route+direction combination
+func limitDeparturesByRouteAndDirection(deps []Departure) []Departure {
+	// Group departures by route+direction
+	counts := make(map[string]int)
+	result := []Departure{}
+	
+	for _, dep := range deps {
+		key := dep.RouteID + "_" + dep.Direction
+		if counts[key] < 2 {
+			result = append(result, dep)
+			counts[key]++
+		}
+	}
+	
+	return result
 }
 
 func fetchGTFS(url string) (*gtfs.FeedMessage, error) {

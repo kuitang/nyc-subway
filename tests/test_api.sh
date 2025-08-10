@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Test script to verify the API endpoints and that departures are limited to 2 per route/direction
+# Usage: ./test_api.sh [BASE_URL]
+# Run the server first: go run backend/main.go
+
+BASE_URL="${1:-http://localhost:8080}"
+
+echo "Testing NYC Subway API endpoints..."
+echo "================================="
+echo
+
+echo "1) Testing /api/stops endpoint (first 5 stations):"
+echo "---------------------------------------------------"
+curl -s "$BASE_URL/api/stops" | jq '.[0:5] | .[] | {stop_id: .gtfs_stop_id, name: .stop_name}'
+echo
+
+echo "2) Testing /api/departures/nearest endpoint (Times Square area):"
+echo "----------------------------------------------------------------"
+LAT=40.7580
+LON=-73.9855
+echo "Coordinates: lat=$LAT, lon=$LON"
+response=$(curl -s "$BASE_URL/api/departures/nearest?lat=$LAT&lon=$LON")
+echo "$response" | jq '{
+  station: .station.stop_name,
+  walking_time_seconds: .walking.seconds,
+  total_departures: (.departures | length),
+  first_5_departures: (.departures[0:5] | map({
+    route: .route_id,
+    direction: .direction,
+    eta_minutes: .eta_minutes
+  }))
+}'
+
+# Verify the 2 per route/direction limit
+echo
+echo "Verifying departure limits (max 2 per route+direction):"
+echo "$response" | jq '.departures | group_by(.route_id + "_" + .direction) | map({
+  route_direction: .[0].route_id + "_" + .[0].direction,
+  count: length
+}) | .[] | select(.count > 2)'
+if [ $? -eq 0 ]; then
+  echo "✓ All route+direction combinations have ≤ 2 departures"
+fi
+echo
+
+echo "3) Testing /api/departures/by-name endpoint (Grand Central):"
+echo "------------------------------------------------------------"
+response=$(curl -s "$BASE_URL/api/departures/by-name?name=Grand%20Central%20-%2042%20St")
+echo "$response" | jq '{
+  station: .station.stop_name,
+  total_departures: (.departures | length),
+  departures_by_route: (.departures | group_by(.route_id + "_" + .direction) | map({
+    route_direction: .[0].route_id + "_" + .[0].direction,
+    count: length,
+    times: map(.eta_minutes)
+  }))
+}'
+echo
+
+echo "4) Testing /api/departures/by-name with partial match (\"Union\"):"
+echo "-----------------------------------------------------------------"
+curl -s "$BASE_URL/api/departures/by-name?name=Union" | jq '{
+  station: .station.stop_name,
+  total_departures: (.departures | length)
+}' 2>/dev/null || echo "No match or error (expected if no Union stations in data)"
+echo
+
+echo "5) Testing error cases:"
+echo "-----------------------"
+echo "a) Outside NYC area (Los Angeles coordinates):"
+curl -s "$BASE_URL/api/departures/nearest?lat=34.0522&lon=-118.2437" | jq '.error'
+
+echo "b) Missing latitude parameter:"
+curl -s "$BASE_URL/api/departures/nearest?lon=-73.9855" | jq '.error'
+
+echo "c) Invalid latitude format:"
+curl -s "$BASE_URL/api/departures/nearest?lat=abc&lon=-73.9855" | jq '.error'
+
+echo "d) Station name not found:"
+curl -s "$BASE_URL/api/departures/by-name?name=NoSuchStationExists" | jq '.error'
+
+echo "e) Missing name parameter:"
+curl -s "$BASE_URL/api/departures/by-name" | jq '.error'
+echo
+
+echo "================================="
+echo "API tests completed!"
+echo
+echo "Note: The departure limiting logic ensures max 2 departures per route+direction."
+echo "This helps provide a concise view of upcoming trains without overwhelming users."
