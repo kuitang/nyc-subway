@@ -33,9 +33,10 @@ function App() {
   }, []);
 
   const fetchNearestDepartures = async (lat, lon) => {
+    const apiBaseUrl = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8080';
     try {
       const response = await fetch(
-        `http://localhost:8080/api/departures/nearest?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`
+        `${apiBaseUrl}/api/departures/nearest?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`
       );
       
       if (!response.ok) {

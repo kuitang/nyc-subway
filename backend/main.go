@@ -140,7 +140,11 @@ func main() {
 	mux.HandleFunc("/api/departures/nearest", withCORS(handleNearest))
 	mux.HandleFunc("/api/departures/by-name", withCORS(handleByName))
 
-	addr := ":8080"
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	addr := ":" + port
 	log.Printf("Listening on %s", addr)
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Panic(err)
