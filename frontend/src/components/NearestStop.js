@@ -8,16 +8,26 @@ function NearestStop({ data }) {
   }
 
   const { station, walking, departures } = data;
+  const walkTimeMinutes = walking ? Math.round(walking.seconds / 60) : null;
   
-  const formatWalkTime = (seconds) => {
-    if (!seconds) return '';
-    const minutes = Math.round(seconds / 60);
-    return `${minutes} min walk`;
+  const formatWalkTime = () => {
+    if (!walkTimeMinutes) return '';
+    return `${walkTimeMinutes} min walk`;
   };
 
   const formatETA = (etaMinutes) => {
     if (etaMinutes === 0) return 'Now';
     return `${etaMinutes} min`;
+  };
+
+  const getDepartureTimeClass = (etaMinutes, walkTimeMinutes) => {
+    if (walkTimeMinutes && etaMinutes < walkTimeMinutes) {
+      return 'departure-time--too-late';
+    }
+    if (etaMinutes < 10) {
+      return 'departure-time--good';
+    }
+    return '';
   };
 
   const getDirectionText = (direction, headsign) => {
@@ -62,7 +72,7 @@ function NearestStop({ data }) {
         <h1 className="station-name">{station.stop_name}</h1>
         {walking && (
           <span className="walk-time">
-            {formatWalkTime(walking.seconds)}
+            {formatWalkTime()}
           </span>
         )}
       </div>
@@ -84,7 +94,10 @@ function NearestStop({ data }) {
             
             <div className="departure-times">
               {group.departures.slice(0, 2).map((departure, depIndex) => (
-                <div key={depIndex} className="departure-time">
+                <div 
+                  key={depIndex} 
+                  className={`departure-time ${getDepartureTimeClass(departure.eta_minutes, walkTimeMinutes)}`}
+                >
                   {formatETA(departure.eta_minutes)}
                 </div>
               ))}

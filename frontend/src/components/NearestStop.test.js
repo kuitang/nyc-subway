@@ -213,4 +213,173 @@ describe('NearestStop Component', () => {
     expect(screen.getByText("Times Sq-42 St")).toBeInTheDocument();
     expect(screen.getByText("Southbound")).toBeInTheDocument();
   });
+
+  describe('Departure Time Color Coding', () => {
+    test('should apply too-late class when departure is less than walk time', () => {
+      const mockData = {
+        station: mockStation,
+        walking: { seconds: 300, meters: 250 }, // 5 minutes walk
+        departures: [
+          {
+            route_id: "6",
+            stop_id: "R14N",
+            direction: "N",
+            eta_minutes: 3, // Less than 5 min walk
+            headsign: "Times Sq-42 St"
+          }
+        ]
+      };
+
+      render(<NearestStop data={mockData} />);
+      
+      const departureTime = screen.getByText("3 min");
+      expect(departureTime).toHaveClass('departure-time--too-late');
+      expect(departureTime).not.toHaveClass('departure-time--good');
+    });
+
+    test('should apply good class when departure is less than 10 minutes but more than walk time', () => {
+      const mockData = {
+        station: mockStation,
+        walking: { seconds: 180, meters: 150 }, // 3 minutes walk
+        departures: [
+          {
+            route_id: "6",
+            stop_id: "R14N",
+            direction: "N",
+            eta_minutes: 7, // More than 3 min walk, less than 10 min
+            headsign: "Times Sq-42 St"
+          }
+        ]
+      };
+
+      render(<NearestStop data={mockData} />);
+      
+      const departureTime = screen.getByText("7 min");
+      expect(departureTime).toHaveClass('departure-time--good');
+      expect(departureTime).not.toHaveClass('departure-time--too-late');
+    });
+
+    test('should apply no special class when departure is 10 minutes or more', () => {
+      const mockData = {
+        station: mockStation,
+        walking: { seconds: 180, meters: 150 }, // 3 minutes walk
+        departures: [
+          {
+            route_id: "6",
+            stop_id: "R14N",
+            direction: "N",
+            eta_minutes: 15, // More than 10 min
+            headsign: "Times Sq-42 St"
+          }
+        ]
+      };
+
+      render(<NearestStop data={mockData} />);
+      
+      const departureTime = screen.getByText("15 min");
+      expect(departureTime).toHaveClass('departure-time');
+      expect(departureTime).not.toHaveClass('departure-time--good');
+      expect(departureTime).not.toHaveClass('departure-time--too-late');
+    });
+
+    test('should handle edge case when departure equals walk time', () => {
+      const mockData = {
+        station: mockStation,
+        walking: { seconds: 300, meters: 250 }, // 5 minutes walk
+        departures: [
+          {
+            route_id: "6",
+            stop_id: "R14N",
+            direction: "N",
+            eta_minutes: 5, // Exactly equal to walk time
+            headsign: "Times Sq-42 St"
+          }
+        ]
+      };
+
+      render(<NearestStop data={mockData} />);
+      
+      const departureTime = screen.getByText("5 min");
+      // Should apply good class (not too-late) since it's not less than walk time
+      expect(departureTime).toHaveClass('departure-time--good');
+      expect(departureTime).not.toHaveClass('departure-time--too-late');
+    });
+
+    test('should handle case with no walking data', () => {
+      const mockData = {
+        station: mockStation,
+        walking: null, // No walking data
+        departures: [
+          {
+            route_id: "6",
+            stop_id: "R14N",
+            direction: "N",
+            eta_minutes: 3,
+            headsign: "Times Sq-42 St"
+          }
+        ]
+      };
+
+      render(<NearestStop data={mockData} />);
+      
+      const departureTime = screen.getByText("3 min");
+      // Should apply good class since eta < 10 and no walk time to compare
+      expect(departureTime).toHaveClass('departure-time--good');
+      expect(departureTime).not.toHaveClass('departure-time--too-late');
+    });
+
+    test('should handle "Now" departure correctly', () => {
+      const mockData = {
+        station: mockStation,
+        walking: { seconds: 300, meters: 250 }, // 5 minutes walk
+        departures: [
+          {
+            route_id: "6",
+            stop_id: "R14N",
+            direction: "N",
+            eta_minutes: 0, // Now
+            headsign: "Times Sq-42 St"
+          }
+        ]
+      };
+
+      render(<NearestStop data={mockData} />);
+      
+      const departureTime = screen.getByText("Now");
+      // Should apply too-late class since 0 < walk time (5)
+      expect(departureTime).toHaveClass('departure-time--too-late');
+      expect(departureTime).not.toHaveClass('departure-time--good');
+    });
+
+    test('should apply different classes to multiple departures correctly', () => {
+      const mockData = {
+        station: mockStation,
+        walking: { seconds: 240, meters: 200 }, // 4 minutes walk
+        departures: [
+          {
+            route_id: "6",
+            stop_id: "R14N",
+            direction: "N",
+            eta_minutes: 2, // Less than walk time
+            headsign: "Times Sq-42 St"
+          },
+          {
+            route_id: "6",
+            stop_id: "R14N",
+            direction: "N",
+            eta_minutes: 6, // More than walk time, less than 10
+            headsign: "Times Sq-42 St"
+          }
+        ]
+      };
+
+      render(<NearestStop data={mockData} />);
+      
+      const firstDeparture = screen.getByText("2 min");
+      const secondDeparture = screen.getByText("6 min");
+      
+      expect(firstDeparture).toHaveClass('departure-time--too-late');
+      expect(secondDeparture).toHaveClass('departure-time--good');
+    });
+  });
 });
