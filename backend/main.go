@@ -96,11 +96,14 @@ var (
 )
 
 func main() {
+	// Enable line numbers in logging
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	
 	if v := os.Getenv("STATIONS_CSV"); v != "" {
 		stationsCSV = v
 	}
 	if err := loadStations(context.Background(), stationsCSV); err != nil {
-		panic(err)
+		log.Panic(err)
 	}
 
 	// Log full list of stations as requested
@@ -116,9 +119,9 @@ func main() {
 	mux.HandleFunc("/", withCORS(serveIndex)) // convenience for static frontend
 
 	addr := ":8080"
-	fmt.Println("Listening on", addr)
+	log.Printf("Listening on %s", addr)
 	if err := http.ListenAndServe(addr, mux); err != nil {
-		panic(err)
+		log.Panic(err)
 	}
 }
 
@@ -285,10 +288,22 @@ func departuresForStation(s Station) ([]Departure, error) {
 }
 
 func departuresForStops(sts []Station) ([]Departure, error) {
-	// Build set of stop_ids to match
-	stopSet := map[string]struct{}{}
+	// Build sets for exact stop IDs and their "base" IDs (without trailing direction letter).
+	stopExact := map[string]struct{}{}
+	stopBase := map[string]struct{}{}
+	base := func(id string) string {
+		if id == "" {
+			return id
+		}
+		last := id[len(id)-1]
+		if (last >= 'A' && last <= 'Z') || (last >= 'a' && last <= 'z') {
+			return id[:len(id)-1]
+		}
+		return id
+	}
 	for _, s := range sts {
-		stopSet[s.StopID] = struct{}{}
+		stopExact[s.StopID] = struct{}{}
+		stopBase[base(s.StopID)] = struct{}{}
 	}
 
 	now := time.Now().Unix()
@@ -300,43 +315,7 @@ func departuresForStops(sts []Station) ([]Departure, error) {
 			log.Printf("fetchGTFS error for %s: %v", u, err)
 			continue
 		}
-		// LOG: Basic feed header info if present
-		if feed.Header != nil {
-			log.Printf("Feed %s header: gtfs_realtime_version=%s incrementality=%v timestamp=%d",
-				u, feed.Header.GetGtfsRealtimeVersion(), feed.Header.GetIncrementality(), feed.Header.GetTimestamp())
-		}
-
 		for _, ent := range feed.GetEntity() {
-			// LOG: TripUpdate values as requested
-			if tu := ent.GetTripUpdate(); tu != nil {
-				trip := tu.GetTrip()
-				routeID := ""
-				tripID := ""
-				startDate := ""
-				directionID := uint32(2)
-				if trip != nil {
-					routeID = trip.GetRouteId()
-					tripID = trip.GetTripId()
-					startDate = trip.GetStartDate()
-					if trip.DirectionId != nil {
-						directionID = trip.GetDirectionId()
-					}
-				}
-				log.Printf("TripUpdate: route=%s trip=%s start_date=%s direction_id=%d stop_time_updates=%d",
-					routeID, tripID, startDate, directionID, len(tu.GetStopTimeUpdate()))
-				for i, stu := range tu.GetStopTimeUpdate() {
-					arrT := int64(0)
-					depT := int64(0)
-					if arr := stu.GetArrival(); arr != nil {
-						arrT = arr.GetTime()
-					}
-					if dep := stu.GetDeparture(); dep != nil {
-						depT = dep.GetTime()
-					}
-					log.Printf("  STU[%d]: stop_id=%s arrival=%d departure=%d", i, stu.GetStopId(), arrT, depT)
-				}
-			}
-
 			tu := ent.GetTripUpdate()
 			if tu == nil {
 				continue
@@ -347,11 +326,18 @@ func departuresForStops(sts []Station) ([]Departure, error) {
 				routeID = td.GetRouteId()
 				tripID = td.GetTripId()
 			}
+
+			// IMPORTANT: translate and append within the same loop that iterates stop time updates.
 			for _, stu := range tu.GetStopTimeUpdate() {
 				stopID := stu.GetStopId()
-				if _, ok := stopSet[stopID]; !ok {
-					continue
+
+				// Match against exact stop ID OR base stop ID (handles N/S/E/W suffix in GTFS-RT).
+				if _, ok := stopExact[stopID]; !ok {
+					if _, ok2 := stopBase[base(stopID)]; !ok2 {
+						continue
+					}
 				}
+
 				var t int64
 				if dep := stu.GetDeparture(); dep != nil {
 					t = dep.GetTime()
@@ -364,6 +350,7 @@ func departuresForStops(sts []Station) ([]Departure, error) {
 				if t == 0 || t < now {
 					continue
 				}
+
 				dir := ""
 				if n := len(stopID); n > 0 {
 					last := stopID[n-1]
@@ -372,6 +359,7 @@ func departuresForStops(sts []Station) ([]Departure, error) {
 					}
 				}
 				etaSec := t - now
+
 				deps = append(deps, Departure{
 					RouteID:    routeID,
 					StopID:     stopID,
@@ -389,7 +377,7 @@ func departuresForStops(sts []Station) ([]Departure, error) {
 	if len(deps) > 30 {
 		deps = deps[:30]
 	}
-	log.Printf("departuresForStops produced %d departures (trimmed to %d)", len(deps), len(deps))
+	log.Printf("departuresForStops produced %d departures (after filtering)", len(deps))
 	return deps, nil
 }
 
@@ -426,7 +414,7 @@ func loadStations(ctx context.Context, csvURL string) error {
 		return fmt.Errorf("read stations header: %w", err)
 	}
 	// Print headers (raw and normalized) for debugging/visibility.
-	fmt.Printf("stations csv header (raw): %q\n", headers)
+	log.Printf("stations csv header (raw): %q", headers)
 	idx := map[string]int{}
 	for i, h := range headers {
 		key := normalizeHeader(h)
@@ -439,7 +427,7 @@ func loadStations(ctx context.Context, csvURL string) error {
 		normKeys = append(normKeys, k)
 	}
 	sort.Strings(normKeys)
-	fmt.Printf("stations csv header (normalized): %s\n", strings.Join(normKeys, ", "))
+	log.Printf("stations csv header (normalized): %s", strings.Join(normKeys, ", "))
 	for _, k := range need {
 		if _, ok := idx[k]; !ok {
 			return fmt.Errorf("stations csv missing column '%s'", k)
