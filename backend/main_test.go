@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/MobilityData/gtfs-realtime-bindings/golang/gtfs"
+	gtfs_realtime "nyc-subway/gtfs_realtime"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -349,26 +349,26 @@ func TestDeparturesForStopsArrivalOnly(t *testing.T) {
 	// Mock GTFS feed with arrival times only (no departure times)
 	version := "2.0"
 	timestamp := uint64(time.Now().Unix())
-	incrementality := gtfs.FeedHeader_FULL_DATASET
+	incrementality := gtfs_realtime.FeedHeader_FULL_DATASET
 	
-	mockFeed := &gtfs.FeedMessage{
-		Header: &gtfs.FeedHeader{
+	mockFeed := &gtfs_realtime.FeedMessage{
+		Header: &gtfs_realtime.FeedHeader{
 			GtfsRealtimeVersion: &version,
 			Timestamp:           &timestamp,
 			Incrementality:      &incrementality,
 		},
-		Entity: []*gtfs.FeedEntity{
+		Entity: []*gtfs_realtime.FeedEntity{
 			{
 				Id: proto.String("entity1"),
-				TripUpdate: &gtfs.TripUpdate{
-					Trip: &gtfs.TripDescriptor{
+				TripUpdate: &gtfs_realtime.TripUpdate{
+					Trip: &gtfs_realtime.TripDescriptor{
 						RouteId: proto.String("6"),
 						TripId:  proto.String("trip1"),
 					},
-					StopTimeUpdate: []*gtfs.TripUpdate_StopTimeUpdate{
+					StopTimeUpdate: []*gtfs_realtime.TripUpdate_StopTimeUpdate{
 						{
 							StopId: proto.String("635N"),
-							Arrival: &gtfs.TripUpdate_StopTimeEvent{
+							Arrival: &gtfs_realtime.TripUpdate_StopTimeEvent{
 								Time: proto.Int64(time.Now().Unix() + 300),
 							},
 							// No Departure time
