@@ -8,7 +8,7 @@ function NearestStop({ data }) {
   }
 
   const { station, walking, departures } = data;
-  const walkTimeMinutes = walking ? Math.round(walking.seconds / 60) : null;
+  const walkTimeMinutes = walking ? Math.ceil(walking.seconds / 60) : null;
   
   const formatWalkTime = () => {
     if (!walkTimeMinutes) return '';
@@ -93,14 +93,17 @@ function NearestStop({ data }) {
             </div>
             
             <div className="departure-times">
-              {group.departures.slice(0, 2).map((departure, depIndex) => (
-                <div 
-                  key={depIndex} 
-                  className={`departure-time ${getDepartureTimeClass(departure.eta_minutes, walkTimeMinutes)}`}
-                >
-                  {formatETA(departure.eta_minutes)}
-                </div>
-              ))}
+              {group.departures.slice(0, 2).map((departure, depIndex) => {
+                const etaMinutes = Math.floor(departure.eta_seconds / 60);
+                return (
+                  <div 
+                    key={depIndex} 
+                    className={`departure-time ${getDepartureTimeClass(etaMinutes, walkTimeMinutes)}`}
+                  >
+                    {formatETA(etaMinutes)}
+                  </div>
+                );
+              })}
             </div>
           </div>
         ))}

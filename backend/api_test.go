@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"github.com/bluele/gcache"
 )
 
 func TestAPIStopsEndpoint(t *testing.T) {
@@ -34,6 +37,12 @@ func TestAPIStopsEndpoint(t *testing.T) {
 }
 
 func TestAPINearestEndpoint(t *testing.T) {
+	// Initialize test cache
+	walkCache = gcache.New(10).
+		LRU().
+		Expiration(1 * time.Hour).
+		Build()
+	
 	// Initialize test stations
 	stations = []Station{
 		{StopID: "R14N", Name: "14 St - Union Sq", Lat: 40.7359, Lon: -73.9906},
@@ -57,6 +66,12 @@ func TestAPINearestEndpoint(t *testing.T) {
 }
 
 func TestAPIByNameEndpoint(t *testing.T) {
+	// Initialize test cache
+	walkCache = gcache.New(10).
+		LRU().
+		Expiration(1 * time.Hour).
+		Build()
+	
 	// Initialize test stations
 	stations = []Station{
 		{StopID: "R14N", Name: "14 St - Union Sq", Lat: 40.7359, Lon: -73.9906},
@@ -77,6 +92,12 @@ func TestAPIByNameEndpoint(t *testing.T) {
 }
 
 func TestAPIInvalidRequests(t *testing.T) {
+	// Initialize test cache
+	walkCache = gcache.New(10).
+		LRU().
+		Expiration(1 * time.Hour).
+		Build()
+	
 	stations = []Station{
 		{StopID: "R14N", Name: "14 St - Union Sq", Lat: 40.7359, Lon: -73.9906},
 	}

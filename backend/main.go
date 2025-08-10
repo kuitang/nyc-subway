@@ -40,6 +40,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bluele/gcache"
 	gtfs_realtime "nyc-subway/gtfs_realtime"
 	"google.golang.org/protobuf/proto"
 )
@@ -63,7 +64,6 @@ type Departure struct {
 	Direction  string `json:"direction"` // last letter of stop_id (N/S/E/W) if present
 	UnixTime   int64  `json:"unix_time"`
 	ETASeconds int64  `json:"eta_seconds"`
-	ETAMinutes int64  `json:"eta_minutes"`
 	TripID     string `json:"trip_id,omitempty"`
 	HeadSign   string `json:"headsign,omitempty"`
 }
@@ -86,6 +86,7 @@ var (
 	stations   []Station
 	trips      []Trip
 	httpClient = &http.Client{Timeout: 12 * time.Second}
+	walkCache  gcache.Cache
 	// NYC area bounding box (coarse)
 	minLat, maxLat = 40.3, 41.1
 	minLon, maxLon = -74.5, -73.3
@@ -110,6 +111,12 @@ var (
 func main() {
 	// Enable line numbers in logging with microsecond granularity
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds | log.Lshortfile)
+	
+	// Initialize walking time cache: 24h TTL, max 10,000 entries with LRU eviction
+	walkCache = gcache.New(10000).
+		LRU().
+		Expiration(24 * time.Hour).
+		Build()
 	
 	if v := os.Getenv("STATIONS_CSV"); v != "" {
 		stationsCSV = v
@@ -149,10 +156,12 @@ func withCORS(h http.HandlerFunc) http.HandlerFunc {
 
 
 func handleStops(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Request received: %s %s", r.Method, r.URL.String())
 	writeJSON(w, stations)
 }
 
 func handleNearest(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Request received: %s %s", r.Method, r.URL.String())
 	lat, lon, err := parseLatLon(r)
 	if err != nil {
 		httpError(w, http.StatusBadRequest, err.Error())
@@ -182,6 +191,7 @@ func handleNearest(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleByName(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Request received: %s %s", r.Method, r.URL.String())
 	name := strings.TrimSpace(r.URL.Query().Get("name"))
 	if name == "" {
 		httpError(w, http.StatusBadRequest, "missing name")
@@ -249,7 +259,29 @@ func haversine(lat1, lon1, lat2, lon2 float64) float64 {
 	return R * c
 }
 
+// quantizeCoord rounds coordinates to 4 decimal places (~11m precision) for cache key generation
+func quantizeCoord(coord float64) float64 {
+	return math.Round(coord*10000) / 10000
+}
+
+// makeCacheKey creates a cache key for walking time results
+func makeCacheKey(fromLat, fromLon, toLat, toLon float64) string {
+	// Quantize user coordinates (from), keep station coordinates (to) precise
+	qFromLat := quantizeCoord(fromLat)
+	qFromLon := quantizeCoord(fromLon)
+	return fmt.Sprintf("%.4f,%.4f,%.6f,%.6f", qFromLat, qFromLon, toLat, toLon)
+}
+
 func walkingTime(fromLat, fromLon, toLat, toLon float64) (*WalkResult, error) {
+	// Check cache first
+	cacheKey := makeCacheKey(fromLat, fromLon, toLat, toLon)
+	if cached, err := walkCache.Get(cacheKey); err == nil {
+		if result, ok := cached.(*WalkResult); ok {
+			log.Printf("walkingTime cache hit for key %s", cacheKey)
+			return result, nil
+		}
+	}
+	
 	url := fmt.Sprintf(
 		"https://router.project-osrm.org/route/v1/foot/%f,%f;%f,%f?overview=false",
 		fromLon, fromLat, toLon, toLat,
@@ -283,8 +315,14 @@ func walkingTime(fromLat, fromLon, toLat, toLon float64) (*WalkResult, error) {
 		log.Printf("walkingTime response had zero routes")
 		return nil, errors.New("no route")
 	}
-	log.Printf("walkingTime OK: duration=%.1fs distance=%.1fm (elapsed %s)", obj.Routes[0].Duration, obj.Routes[0].Distance, time.Since(start))
-	return &WalkResult{Seconds: obj.Routes[0].Duration, Distance: obj.Routes[0].Distance}, nil
+	
+	result := &WalkResult{Seconds: obj.Routes[0].Duration, Distance: obj.Routes[0].Distance}
+	
+	// Store in cache
+	walkCache.Set(cacheKey, result)
+	log.Printf("walkingTime OK: duration=%.1fs distance=%.1fm (elapsed %s) [cached: %s]", 
+		obj.Routes[0].Duration, obj.Routes[0].Distance, time.Since(start), cacheKey)
+	return result, nil
 }
 
 func departuresForStation(s Station) ([]Departure, error) {
@@ -361,7 +399,6 @@ func departuresForStops(sts []Station) ([]Departure, error) {
 					Direction:  dir,
 					UnixTime:   t,
 					ETASeconds: etaSec,
-					ETAMinutes: etaSec / 60,
 					TripID:     tripID,
 					HeadSign:   "",
 				})

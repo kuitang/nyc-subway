@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, cleanup } from '@testing-library/react';
 import NearestStop from './NearestStop';
 
 // Test data
@@ -25,7 +25,7 @@ describe('NearestStop Component', () => {
           route_id: "6",
           stop_id: "R14N", 
           direction: "N",
-          eta_minutes: 3,
+          eta_seconds: 180,
           headsign: "Times Sq-42 St"
         }
       ]
@@ -48,7 +48,7 @@ describe('NearestStop Component', () => {
           route_id: "6",
           stop_id: "R14N",
           direction: "N", 
-          eta_minutes: 3,
+          eta_seconds: 180,
           headsign: ""
         }
       ]
@@ -69,7 +69,7 @@ describe('NearestStop Component', () => {
           route_id: "Q", 
           stop_id: "R14S",
           direction: "S",
-          eta_minutes: 5,
+          eta_seconds: 300,
           headsign: ""
         }
       ]
@@ -89,7 +89,7 @@ describe('NearestStop Component', () => {
           route_id: "L",
           stop_id: "R14E", 
           direction: "E",
-          eta_minutes: 2,
+          eta_seconds: 120,
           headsign: ""
         }
       ]
@@ -109,7 +109,7 @@ describe('NearestStop Component', () => {
           route_id: "L",
           stop_id: "R14W",
           direction: "W", 
-          eta_minutes: 7,
+          eta_seconds: 420,
           headsign: ""
         }
       ]
@@ -129,7 +129,7 @@ describe('NearestStop Component', () => {
           route_id: "6",
           stop_id: "R14N",
           direction: "N",
-          eta_minutes: 3
+          eta_seconds: 180
           // headsign field is missing/undefined
         }
       ]
@@ -150,7 +150,7 @@ describe('NearestStop Component', () => {
           route_id: "6",
           stop_id: "456", 
           direction: "",
-          eta_minutes: 3,
+          eta_seconds: 180,
           headsign: ""
         }
       ]
@@ -172,7 +172,7 @@ describe('NearestStop Component', () => {
           route_id: "N",
           stop_id: "R14S",
           direction: "S",
-          eta_minutes: 4,
+          eta_seconds: 240,
           headsign: "Coney Island-Stillwell Av"
         }
       ]
@@ -194,14 +194,14 @@ describe('NearestStop Component', () => {
           route_id: "6",
           stop_id: "R14N",
           direction: "N",
-          eta_minutes: 2,
+          eta_seconds: 120,
           headsign: "Times Sq-42 St"
         },
         {
           route_id: "6", 
           stop_id: "R14S",
           direction: "S",
-          eta_minutes: 5,
+          eta_seconds: 300,
           headsign: ""
         }
       ]
@@ -224,7 +224,7 @@ describe('NearestStop Component', () => {
             route_id: "6",
             stop_id: "R14N",
             direction: "N",
-            eta_minutes: 3, // Less than 5 min walk
+            eta_seconds: 180, // Less than 5 min walk
             headsign: "Times Sq-42 St"
           }
         ]
@@ -246,7 +246,7 @@ describe('NearestStop Component', () => {
             route_id: "6",
             stop_id: "R14N",
             direction: "N",
-            eta_minutes: 7, // More than 3 min walk, less than 10 min
+            eta_seconds: 420, // More than 3 min walk, less than 10 min
             headsign: "Times Sq-42 St"
           }
         ]
@@ -268,7 +268,7 @@ describe('NearestStop Component', () => {
             route_id: "6",
             stop_id: "R14N",
             direction: "N",
-            eta_minutes: 15, // More than 10 min
+            eta_seconds: 900, // More than 10 min
             headsign: "Times Sq-42 St"
           }
         ]
@@ -291,7 +291,7 @@ describe('NearestStop Component', () => {
             route_id: "6",
             stop_id: "R14N",
             direction: "N",
-            eta_minutes: 5, // Exactly equal to walk time
+            eta_seconds: 300, // Exactly equal to walk time
             headsign: "Times Sq-42 St"
           }
         ]
@@ -314,7 +314,7 @@ describe('NearestStop Component', () => {
             route_id: "6",
             stop_id: "R14N",
             direction: "N",
-            eta_minutes: 3,
+            eta_seconds: 180,
             headsign: "Times Sq-42 St"
           }
         ]
@@ -337,7 +337,7 @@ describe('NearestStop Component', () => {
             route_id: "6",
             stop_id: "R14N",
             direction: "N",
-            eta_minutes: 0, // Now
+            eta_seconds: 0, // Now
             headsign: "Times Sq-42 St"
           }
         ]
@@ -360,14 +360,14 @@ describe('NearestStop Component', () => {
             route_id: "6",
             stop_id: "R14N",
             direction: "N",
-            eta_minutes: 2, // Less than walk time
+            eta_seconds: 120, // Less than walk time
             headsign: "Times Sq-42 St"
           },
           {
             route_id: "6",
             stop_id: "R14N",
             direction: "N",
-            eta_minutes: 6, // More than walk time, less than 10
+            eta_seconds: 360, // More than walk time, less than 10
             headsign: "Times Sq-42 St"
           }
         ]
@@ -380,6 +380,175 @@ describe('NearestStop Component', () => {
       
       expect(firstDeparture).toHaveClass('departure-time--too-late');
       expect(secondDeparture).toHaveClass('departure-time--good');
+    });
+  });
+
+  describe('Minute Calculation Rounding', () => {
+    test('should round up walk time (Math.ceil)', () => {
+      const mockDataWithWalk90s = {
+        station: mockStation,
+        walking: { seconds: 90, meters: 75 }, // 90 seconds should round up to 2 minutes
+        departures: [{
+          route_id: "6",
+          stop_id: "R14N",
+          direction: "N",
+          eta_seconds: 600,
+          headsign: "Times Sq-42 St"
+        }]
+      };
+
+      const mockDataWithWalk61s = {
+        station: mockStation,
+        walking: { seconds: 61, meters: 50 }, // 61 seconds should round up to 2 minutes
+        departures: [{
+          route_id: "6",
+          stop_id: "R14N",
+          direction: "N",
+          eta_seconds: 600,
+          headsign: "Times Sq-42 St"
+        }]
+      };
+
+      const mockDataWithWalk60s = {
+        station: mockStation,
+        walking: { seconds: 60, meters: 50 }, // 60 seconds should be exactly 1 minute
+        departures: [{
+          route_id: "6",
+          stop_id: "R14N",
+          direction: "N",
+          eta_seconds: 600,
+          headsign: "Times Sq-42 St"
+        }]
+      };
+
+      const mockDataWithWalk59s = {
+        station: mockStation,
+        walking: { seconds: 59, meters: 45 }, // 59 seconds should round up to 1 minute
+        departures: [{
+          route_id: "6",
+          stop_id: "R14N",
+          direction: "N",
+          eta_seconds: 600,
+          headsign: "Times Sq-42 St"
+        }]
+      };
+
+      // Test 90 seconds = 2 minutes (rounded up)
+      render(<NearestStop data={mockDataWithWalk90s} />);
+      expect(screen.getByText("2 min walk")).toBeInTheDocument();
+      cleanup();
+
+      // Test 61 seconds = 2 minutes (rounded up)
+      render(<NearestStop data={mockDataWithWalk61s} />);
+      expect(screen.getByText("2 min walk")).toBeInTheDocument();
+      cleanup();
+
+      // Test 60 seconds = 1 minute (exact)
+      render(<NearestStop data={mockDataWithWalk60s} />);
+      expect(screen.getByText("1 min walk")).toBeInTheDocument();
+      cleanup();
+
+      // Test 59 seconds = 1 minute (rounded up)
+      render(<NearestStop data={mockDataWithWalk59s} />);
+      expect(screen.getByText("1 min walk")).toBeInTheDocument();
+    });
+
+    test('should round down ETA time (Math.floor)', () => {
+      const mockData90s = {
+        station: mockStation,
+        walking: mockWalking,
+        departures: [{
+          route_id: "6",
+          stop_id: "R14N",
+          direction: "N",
+          eta_seconds: 90, // 90 seconds should round down to 1 minute
+          headsign: "Times Sq-42 St"
+        }]
+      };
+
+      const mockData119s = {
+        station: mockStation,
+        walking: mockWalking,
+        departures: [{
+          route_id: "6",
+          stop_id: "R14N",
+          direction: "N",
+          eta_seconds: 119, // 119 seconds should round down to 1 minute
+          headsign: "Times Sq-42 St"
+        }]
+      };
+
+      const mockData120s = {
+        station: mockStation,
+        walking: mockWalking,
+        departures: [{
+          route_id: "6",
+          stop_id: "R14N",
+          direction: "N",
+          eta_seconds: 120, // 120 seconds should be exactly 2 minutes
+          headsign: "Times Sq-42 St"
+        }]
+      };
+
+      const mockData59s = {
+        station: mockStation,
+        walking: mockWalking,
+        departures: [{
+          route_id: "6",
+          stop_id: "R14N",
+          direction: "N",
+          eta_seconds: 59, // 59 seconds should round down to 0 minutes
+          headsign: "Times Sq-42 St"
+        }]
+      };
+
+      // Test 90 seconds = 1 minute (rounded down)
+      render(<NearestStop data={mockData90s} />);
+      expect(screen.getByText("1 min")).toBeInTheDocument();
+      cleanup();
+
+      // Test 119 seconds = 1 minute (rounded down)
+      render(<NearestStop data={mockData119s} />);
+      expect(screen.getByText("1 min")).toBeInTheDocument();
+      cleanup();
+
+      // Test 120 seconds = 2 minutes (exact)
+      render(<NearestStop data={mockData120s} />);
+      expect(screen.getByText("2 min")).toBeInTheDocument();
+      cleanup();
+
+      // Test 59 seconds = "Now" (rounded down to 0)
+      render(<NearestStop data={mockData59s} />);
+      expect(screen.getByText("Now")).toBeInTheDocument();
+    });
+
+    test('should ensure walk time is always overestimated and ETA is always underestimated', () => {
+      // Edge case: 61 second walk, 119 second ETA
+      // Walk should round up to 2 min, ETA should round down to 1 min
+      // This ensures we overestimate walk time and underestimate ETA
+      const mockData = {
+        station: mockStation,
+        walking: { seconds: 61, meters: 50 }, // Rounds up to 2 min
+        departures: [{
+          route_id: "6",
+          stop_id: "R14N",
+          direction: "N",
+          eta_seconds: 119, // Rounds down to 1 min
+          headsign: "Times Sq-42 St"
+        }]
+      };
+
+      render(<NearestStop data={mockData} />);
+      
+      // Walk time should be 2 minutes (overestimated)
+      expect(screen.getByText("2 min walk")).toBeInTheDocument();
+      
+      // ETA should be 1 minute (underestimated)
+      expect(screen.getByText("1 min")).toBeInTheDocument();
+      
+      // This departure should be marked as too late since 1 < 2
+      const departureTime = screen.getByText("1 min");
+      expect(departureTime).toHaveClass('departure-time--too-late');
     });
   });
 });
