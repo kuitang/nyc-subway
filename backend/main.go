@@ -108,8 +108,8 @@ var (
 )
 
 func main() {
-	// Enable line numbers in logging
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	// Enable line numbers in logging with microsecond granularity
+	log.SetFlags(log.LstdFlags | log.Lmicroseconds | log.Lshortfile)
 	
 	if v := os.Getenv("STATIONS_CSV"); v != "" {
 		stationsCSV = v
