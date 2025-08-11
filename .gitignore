@@ -35,3 +35,4 @@ Thumbs.db
 backend/backend
 gtfs_realtime/gtfs-realtime.pb.go
 frontend/package-lock.json
+coverage/

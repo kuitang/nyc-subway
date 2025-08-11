@@ -76,7 +76,7 @@ function App() {
     
     try {
       const response = await fetch(
-        `${apiBaseUrl}/api/departures/by-name?name=${encodeURIComponent(station.stop_name)}`
+        `${apiBaseUrl}/api/departures/by-id?id=${encodeURIComponent(station.gtfs_stop_id)}`
       );
       
       if (!response.ok) {
