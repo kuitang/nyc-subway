@@ -2,7 +2,7 @@
 // - Endpoints:
 //   GET /api/stops
 //   GET /api/departures/nearest?lat=<lat>&lon=<lon>
-//   GET /api/departures/by-name?name=<stop name>
+//   GET /api/departures/by-id?id=<stop id>
 //
 // Build/run:
 //   go mod init nyc-subway
@@ -187,7 +187,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/stops", withCORS(handleStops))
 	mux.HandleFunc("/api/departures/nearest", withCORS(handleNearest))
-	mux.HandleFunc("/api/departures/by-name", withCORS(handleByName))
+	mux.HandleFunc("/api/departures/by-id", withCORS(handleByID))
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -272,26 +272,41 @@ func handleNearest(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Request completed in %.2f ms", float64(time.Since(start).Microseconds())/1000.0)
 }
 
-func handleByName(w http.ResponseWriter, r *http.Request) {
+func handleByID(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	log.Printf("Request received: %s %s", r.Method, r.URL.String())
-	name := strings.TrimSpace(r.URL.Query().Get("name"))
-	if name == "" {
-		httpError(w, http.StatusBadRequest, "missing name")
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	if id == "" {
+		httpError(w, http.StatusBadRequest, "missing id")
 		return
 	}
+	// Remove N/S suffix if present to get base stop ID
+	baseID := id
+	if len(id) > 1 {
+		lastChar := id[len(id)-1]
+		if lastChar == 'N' || lastChar == 'S' {
+			baseID = id[:len(id)-1]
+		}
+	}
 	var matched []Station
-	lname := strings.ToLower(name)
 	for _, s := range stations {
-		if strings.Contains(strings.ToLower(s.Name), lname) {
+		// Match stations with the same base ID (ignoring N/S suffix)
+		stationBaseID := s.StopID
+		if len(s.StopID) > 1 {
+			lastChar := s.StopID[len(s.StopID)-1]
+			if lastChar == 'N' || lastChar == 'S' {
+				stationBaseID = s.StopID[:len(s.StopID)-1]
+			}
+		}
+		if stationBaseID == baseID {
 			matched = append(matched, s)
 		}
 	}
 	if len(matched) == 0 {
-		httpError(w, http.StatusNotFound, "no station matched by name")
+		httpError(w, http.StatusNotFound, "no station matched by id")
 		return
 	}
-	log.Printf("handleByName matched %d station records for name %q", len(matched), name)
+	log.Printf("handleByID matched %d station records for id %q", len(matched), id)
 	deps, err := departuresForStation(matched[0])
 	if err != nil {
 		httpError(w, http.StatusBadGateway, err.Error())

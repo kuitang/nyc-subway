@@ -101,7 +101,7 @@ func TestAPINearestEndpoint(t *testing.T) {
 	}
 }
 
-func TestAPIByNameEndpoint(t *testing.T) {
+func TestAPIByIDEndpoint(t *testing.T) {
 	// Initialize test caches
 	walkCache = gcache.New(10).
 		LRU().
@@ -120,10 +120,10 @@ func TestAPIByNameEndpoint(t *testing.T) {
 		{StopID: "635N", Name: "Grand Central - 42 St", Lat: 40.7527, Lon: -73.9772},
 	}
 
-	req := httptest.NewRequest("GET", "/api/departures/by-name?name=Grand", nil)
+	req := httptest.NewRequest("GET", "/api/departures/by-id?id=635", nil)
 	w := httptest.NewRecorder()
 	
-	handleByName(w, req)
+	handleByID(w, req)
 
 	resp := w.Result()
 	// Similar to above, actual GTFS feeds might not be available in test
@@ -158,8 +158,8 @@ func TestAPIInvalidRequests(t *testing.T) {
 		{"invalid lat", "/api/departures/nearest?lat=abc&lon=-73.9772", http.StatusBadRequest},
 		{"invalid lon", "/api/departures/nearest?lat=40.7527&lon=xyz", http.StatusBadRequest},
 		{"outside NYC", "/api/departures/nearest?lat=34.0522&lon=-118.2437", http.StatusBadRequest},
-		{"missing name", "/api/departures/by-name", http.StatusBadRequest},
-		{"no match", "/api/departures/by-name?name=NoSuchStation", http.StatusNotFound},
+		{"missing id", "/api/departures/by-id", http.StatusBadRequest},
+		{"no match", "/api/departures/by-id?id=NoSuchID", http.StatusNotFound},
 	}
 
 	for _, tt := range tests {
@@ -167,8 +167,8 @@ func TestAPIInvalidRequests(t *testing.T) {
 			req := httptest.NewRequest("GET", tt.endpoint, nil)
 			w := httptest.NewRecorder()
 			
-			if tt.endpoint[:21] == "/api/departures/by-na" {
-				handleByName(w, req)
+			if tt.endpoint[:21] == "/api/departures/by-id" {
+				handleByID(w, req)
 			} else {
 				handleNearest(w, req)
 			}
@@ -298,12 +298,12 @@ func TestFeedOptimizationWithRealStations(t *testing.T) {
 		{StopID: "A32", Name: "Penn Station", Lat: 40.750373, Lon: -73.991057, Routes: []string{"A", "C", "E"}},
 	}
 	
-	// Test the by-name endpoint with a station that has L train only
-	t.Run("by-name endpoint with L train station", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/departures/by-name?name=Bedford", nil)
+	// Test the by-id endpoint with a station that has L train only
+	t.Run("by-id endpoint with L train station", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/departures/by-id?id=L01", nil)
 		w := httptest.NewRecorder()
 		
-		handleByName(w, req)
+		handleByID(w, req)
 		
 		resp := w.Result()
 		// The actual GTFS feeds might not be available, so we accept either 200 or 502
@@ -342,10 +342,10 @@ func TestFeedOptimizationWithRealStations(t *testing.T) {
 			Routes: []string{}, // No routes
 		})
 		
-		req := httptest.NewRequest("GET", "/api/departures/by-name?name=Test%20Station", nil)
+		req := httptest.NewRequest("GET", "/api/departures/by-id?id=TEST", nil)
 		w := httptest.NewRecorder()
 		
-		handleByName(w, req)
+		handleByID(w, req)
 		
 		resp := w.Result()
 		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusBadGateway {
