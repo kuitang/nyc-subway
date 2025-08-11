@@ -5,17 +5,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
-
-	"github.com/bluele/gcache"
 )
 
 func TestAPIStopsEndpoint(t *testing.T) {
-	// Initialize stops cache for testing
-	stopsCache = gcache.New(1).
-		LRU().
-		Expiration(24 * time.Hour).
-		Build()
+	// Initialize test caches
+	initTestCaches()
 	
 	// Initialize some test stations
 	stations = []Station{
@@ -69,15 +63,7 @@ func TestAPIStopsEndpoint(t *testing.T) {
 
 func TestAPINearestEndpoint(t *testing.T) {
 	// Initialize test caches
-	walkCache = gcache.New(10).
-		LRU().
-		Expiration(1 * time.Hour).
-		Build()
-	
-	stopsCache = gcache.New(1).
-		LRU().
-		Expiration(24 * time.Hour).
-		Build()
+	initTestCaches()
 	
 	// Initialize test stations
 	stations = []Station{
@@ -103,15 +89,7 @@ func TestAPINearestEndpoint(t *testing.T) {
 
 func TestAPIByIDEndpoint(t *testing.T) {
 	// Initialize test caches
-	walkCache = gcache.New(10).
-		LRU().
-		Expiration(1 * time.Hour).
-		Build()
-	
-	stopsCache = gcache.New(1).
-		LRU().
-		Expiration(24 * time.Hour).
-		Build()
+	initTestCaches()
 	
 	// Initialize test stations
 	stations = []Station{
@@ -134,15 +112,7 @@ func TestAPIByIDEndpoint(t *testing.T) {
 
 func TestAPIInvalidRequests(t *testing.T) {
 	// Initialize test caches
-	walkCache = gcache.New(10).
-		LRU().
-		Expiration(1 * time.Hour).
-		Build()
-	
-	stopsCache = gcache.New(1).
-		LRU().
-		Expiration(24 * time.Hour).
-		Build()
+	initTestCaches()
 	
 	stations = []Station{
 		{StopID: "R14N", Name: "14 St - Union Sq", Lat: 40.7359, Lon: -73.9906},
@@ -184,15 +154,7 @@ func TestAPIInvalidRequests(t *testing.T) {
 // TestFeedOptimization verifies that stations with route information only fetch necessary feeds
 func TestFeedOptimization(t *testing.T) {
 	// Initialize test caches
-	walkCache = gcache.New(10).
-		LRU().
-		Expiration(1 * time.Hour).
-		Build()
-	
-	stopsCache = gcache.New(1).
-		LRU().
-		Expiration(24 * time.Hour).
-		Build()
+	initTestCaches()
 	
 	// Set up test stations with different route configurations
 	tests := []struct {
@@ -281,15 +243,7 @@ func TestFeedOptimization(t *testing.T) {
 // TestFeedOptimizationWithRealStations tests the optimization with stations that have been loaded with route data
 func TestFeedOptimizationWithRealStations(t *testing.T) {
 	// Initialize test caches
-	walkCache = gcache.New(10).
-		LRU().
-		Expiration(1 * time.Hour).
-		Build()
-	
-	stopsCache = gcache.New(1).
-		LRU().
-		Expiration(24 * time.Hour).
-		Build()
+	initTestCaches()
 	
 	// Initialize stations with route information
 	stations = []Station{

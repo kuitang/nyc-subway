@@ -85,10 +85,11 @@ type Trip struct {
 
 var (
 	stations   []Station
-	trips      []Trip
-	httpClient = &http.Client{Timeout: 12 * time.Second}
-	walkCache  gcache.Cache
-	stopsCache gcache.Cache
+	trips           []Trip
+	httpClient      = &http.Client{Timeout: 12 * time.Second}
+	walkCache       gcache.Cache
+	stopsCache      gcache.Cache
+	transitFeedCache gcache.Cache
 	// NYC area bounding box (coarse)
 	minLat, maxLat = 40.3, 41.1
 	minLon, maxLon = -74.5, -73.3
@@ -165,6 +166,12 @@ func main() {
 	stopsCache = gcache.New(1).
 		LRU().
 		Expiration(24 * time.Hour).
+		Build()
+	
+	// Initialize transit feed cache: 30 second TTL for real-time transit data
+	transitFeedCache = gcache.New(20).
+		LRU().
+		Expiration(30 * time.Second).
 		Build()
 	
 	if v := os.Getenv("STATIONS_CSV"); v != "" {
@@ -589,6 +596,24 @@ func limitDeparturesByRouteAndDirection(deps []Departure) []Departure {
 
 
 func fetchGTFS(url string) (*gtfs_realtime.FeedMessage, error) {
+	return fetchGTFSWithCache(url)
+}
+
+func fetchGTFSWithCache(url string) (*gtfs_realtime.FeedMessage, error) {
+	// Check cache first
+	if cached, err := transitFeedCache.Get(url); err == nil {
+		if cachedData, ok := cached.([]byte); ok {
+			log.Printf("Transit feed cache hit for %s", url)
+			var feed gtfs_realtime.FeedMessage
+			if err := proto.Unmarshal(cachedData, &feed); err != nil {
+				return nil, err
+			}
+			return &feed, nil
+		}
+	}
+	
+	// Cache miss - fetch from network
+	log.Printf("Transit feed cache miss for %s, fetching from network", url)
 	req, _ := http.NewRequest("GET", url, nil)
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -599,10 +624,17 @@ func fetchGTFS(url string) (*gtfs_realtime.FeedMessage, error) {
 	if err != nil {
 		return nil, err
 	}
+	
+	// Parse the protobuf
 	var feed gtfs_realtime.FeedMessage
 	if err := proto.Unmarshal(b, &feed); err != nil {
 		return nil, err
 	}
+	
+	// Store in cache
+	transitFeedCache.Set(url, b)
+	log.Printf("Transit feed cached for %s", url)
+	
 	return &feed, nil
 }
 

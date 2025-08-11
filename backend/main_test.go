@@ -327,6 +327,9 @@ func TestServeIndex(t *testing.T) {
 
 // Test fetchGTFS error cases
 func TestFetchGTFSErrors(t *testing.T) {
+	// Initialize test caches
+	initTestCaches()
+	
 	// Test network error
 	_, err := fetchGTFS("http://invalid-url-that-does-not-exist.local")
 	if err == nil {
@@ -347,6 +350,9 @@ func TestFetchGTFSErrors(t *testing.T) {
 
 // Test departuresForStops with arrival-only times
 func TestDeparturesForStopsArrivalOnly(t *testing.T) {
+	// Initialize test caches
+	initTestCaches()
+	
 	// Mock GTFS feed with arrival times only (no departure times)
 	version := "2.0"
 	timestamp := uint64(time.Now().Unix())

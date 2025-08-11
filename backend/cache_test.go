@@ -210,6 +210,142 @@ func TestQuantizationPrecision(t *testing.T) {
 	}
 }
 
+func TestTransitFeedCache(t *testing.T) {
+	// Setup a test cache with 30 second TTL
+	testCache := gcache.New(10).
+		LRU().
+		Expiration(30 * time.Second).
+		Build()
+	
+	// Save original cache and restore after test
+	originalCache := transitFeedCache
+	transitFeedCache = testCache
+	defer func() { transitFeedCache = originalCache }()
+	
+	// Test feed URLs
+	testURLs := []string{
+		"https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs",
+		"https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-ace",
+		"https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-bdfm",
+	}
+	
+	// Test data to cache - simulating protobuf feed data
+	testFeedData := []byte("test feed data for URL")
+	
+	for _, url := range testURLs {
+		// Test setting cache
+		transitFeedCache.Set(url, testFeedData)
+		
+		// Verify cache retrieval
+		cached, err := transitFeedCache.Get(url)
+		if err != nil {
+			t.Errorf("Failed to retrieve from cache for URL %s: %v", url, err)
+		}
+		
+		cachedData, ok := cached.([]byte)
+		if !ok {
+			t.Errorf("Expected []byte from cache, got %T", cached)
+		}
+		
+		// Verify cached data matches original
+		if string(cachedData) != string(testFeedData) {
+			t.Errorf("Cached data doesn't match original for URL %s", url)
+		}
+	}
+	
+	// Test cache expiration
+	shortTTLCache := gcache.New(10).
+		LRU().
+		Expiration(100 * time.Millisecond).
+		Build()
+	
+	testURL := "https://test.url/feed"
+	shortTTLCache.Set(testURL, testFeedData)
+	
+	// Verify data is cached
+	if _, err := shortTTLCache.Get(testURL); err != nil {
+		t.Errorf("Expected data to be cached immediately after setting")
+	}
+	
+	// Wait for expiration
+	time.Sleep(150 * time.Millisecond)
+	
+	// Verify data has expired
+	if _, err := shortTTLCache.Get(testURL); err == nil {
+		t.Errorf("Expected cache entry to expire after TTL")
+	}
+}
+
+func TestFetchGTFSWithCache(t *testing.T) {
+	// Setup a test cache with 30 second TTL
+	testCache := gcache.New(10).
+		LRU().
+		Expiration(30 * time.Second).
+		Build()
+	
+	// Save original cache and restore after test
+	originalCache := transitFeedCache
+	transitFeedCache = testCache
+	defer func() { transitFeedCache = originalCache }()
+	
+	// Track number of HTTP requests made
+	requestCount := 0
+	
+	// Mock server that returns valid protobuf data
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.WriteHeader(http.StatusOK)
+		// Return minimal valid GTFS-RT protobuf with required fields
+		// This creates a FeedMessage with a header containing the required gtfs_realtime_version field
+		// Format: 0x0a (field 1, header), length, 0x0a (field 1 of header, version), length, "1.0"
+		w.Write([]byte{0x0a, 0x05, 0x0a, 0x03, '1', '.', '0'})
+	}))
+	defer mockServer.Close()
+	
+	// Save original client and restore after test
+	originalClient := httpClient
+	httpClient = &http.Client{Timeout: 5 * time.Second}
+	defer func() { httpClient = originalClient }()
+	
+	// First call should make HTTP request
+	feed1, err := fetchGTFSWithCache(mockServer.URL)
+	if err != nil {
+		t.Fatalf("First fetchGTFSWithCache failed: %v", err)
+	}
+	if feed1 == nil {
+		t.Fatal("Expected non-nil feed from first fetch")
+	}
+	if requestCount != 1 {
+		t.Errorf("Expected 1 HTTP request after first fetch, got %d", requestCount)
+	}
+	
+	// Second call should use cache
+	feed2, err := fetchGTFSWithCache(mockServer.URL)
+	if err != nil {
+		t.Fatalf("Second fetchGTFSWithCache failed: %v", err)
+	}
+	if feed2 == nil {
+		t.Fatal("Expected non-nil feed from second fetch")
+	}
+	if requestCount != 1 {
+		t.Errorf("Expected still 1 HTTP request after second fetch (cache hit), got %d", requestCount)
+	}
+	
+	// Clear cache and verify third call makes HTTP request
+	transitFeedCache.Remove(mockServer.URL)
+	feed3, err := fetchGTFSWithCache(mockServer.URL)
+	if err != nil {
+		t.Fatalf("Third fetchGTFSWithCache failed: %v", err)
+	}
+	if feed3 == nil {
+		t.Fatal("Expected non-nil feed from third fetch")
+	}
+	if requestCount != 2 {
+		t.Errorf("Expected 2 HTTP requests after cache clear, got %d", requestCount)
+	}
+}
+
 func TestStopsCache(t *testing.T) {
 	// Setup a test cache with 24h TTL
 	testCache := gcache.New(1).
