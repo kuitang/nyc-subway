@@ -1,0 +1,19 @@
+app = "nyc-subway-frontend"
+primary_region = "ewr"
+
+[build]
+  dockerfile = "Dockerfile"
+  [build.args]
+    REACT_APP_API_BASE_URL = "https://nyc-subway-backend.fly.dev"
+
+[http_service]
+  internal_port = 80
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
