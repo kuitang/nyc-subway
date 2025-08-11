@@ -52,7 +52,7 @@ jobs:
             Be constructive and helpful in your feedback.
 
           # Optional: Use sticky comments to make Claude reuse the same comment on subsequent pushes to the same PR
-          # use_sticky_comment: true
+          use_sticky_comment: true
           
           # Optional: Customize review based on file types
           # direct_prompt: |
@@ -69,7 +69,7 @@ jobs:
           #   'Please provide a thorough code review focusing on our coding standards and best practices.' }}
           
           # Optional: Add specific tools for running tests or linting
-          # allowed_tools: "Bash(npm run test),Bash(npm run lint),Bash(npm run typecheck)"
+          allowed_tools: "Bash(npm run test),Bash(npm run lint),Bash(npm run typecheck),Bash(go run backend/main.go),Bash(PORT=8081 go run backend/main.go),Bash(cd backend && go test -v),Bash(cd backend && go test -v -cover),Bash(cd backend && go test -coverprofile=coverage.out && go tool cover -html=coverage.out),Bash(cd frontend && npm install),Bash(cd frontend && npm start),Bash(cd frontend && REACT_APP_API_BASE_URL=http://localhost:8081 PORT=3001 npm start),Bash(cd frontend && npm test -- --watchAll=false),Bash(cd frontend && npm build),Bash(./tests/test_api.sh),Bash(./tests/test_api.sh http://localhost:8081),Bash(GOPATH=/tmp/gopath go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28),Bash(mkdir -p gtfs_realtime),Bash(PATH=/tmp/gopath/bin:$PATH protoc --go_out=gtfs_realtime --go_opt=paths=source_relative gtfs-realtime.proto)"
           
           # Optional: Skip review for certain conditions
           # if: |

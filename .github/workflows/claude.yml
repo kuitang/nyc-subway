@@ -50,7 +50,7 @@ jobs:
           # assignee_trigger: "claude-bot"
           
           # Optional: Allow Claude to run specific commands
-          # allowed_tools: "Bash(npm install),Bash(npm run build),Bash(npm run test:*),Bash(npm run lint:*)"
+          allowed_tools: "Bash(npm install),Bash(npm run build),Bash(npm run test:*),Bash(npm run lint:*),Bash(go run backend/main.go),Bash(PORT=8081 go run backend/main.go),Bash(cd backend && go test -v),Bash(cd backend && go test -v -cover),Bash(cd backend && go test -coverprofile=coverage.out && go tool cover -html=coverage.out),Bash(cd frontend && npm install),Bash(cd frontend && npm start),Bash(cd frontend && REACT_APP_API_BASE_URL=http://localhost:8081 PORT=3001 npm start),Bash(cd frontend && npm test -- --watchAll=false),Bash(cd frontend && npm build),Bash(./tests/test_api.sh),Bash(./tests/test_api.sh http://localhost:8081),Bash(GOPATH=/tmp/gopath go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28),Bash(mkdir -p gtfs_realtime),Bash(PATH=/tmp/gopath/bin:$PATH protoc --go_out=gtfs_realtime --go_opt=paths=source_relative gtfs-realtime.proto)"
           
           # Optional: Add custom instructions for Claude to customize its behavior for your project
           # custom_instructions: |
