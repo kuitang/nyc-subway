@@ -213,7 +213,7 @@ func handleByName(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("handleByName matched %d station records for name %q", len(matched), name)
-	deps, err := departuresForStops(matched)
+	deps, err := departuresForStation(matched[0])
 	if err != nil {
 		httpError(w, http.StatusBadGateway, err.Error())
 		return
@@ -330,17 +330,11 @@ func walkingTime(fromLat, fromLon, toLat, toLon float64) (*WalkResult, error) {
 }
 
 func departuresForStation(s Station) ([]Departure, error) {
-	return departuresForStops([]Station{s})
-}
-
-func departuresForStops(sts []Station) ([]Departure, error) {
 	// Build sets for exact stop IDs and their "base" IDs (without trailing direction letter).
 	stopExact := map[string]struct{}{}
 	stopBase := map[string]struct{}{}
-	for _, s := range sts {
-		stopExact[s.StopID] = struct{}{}
-		stopBase[baseStopID(s.StopID)] = struct{}{}
-	}
+	stopExact[s.StopID] = struct{}{}
+	stopBase[baseStopID(s.StopID)] = struct{}{}
 
 	now := time.Now().Unix()
 	deps := make([]Departure, 0, 64)
@@ -420,7 +414,7 @@ func departuresForStops(sts []Station) ([]Departure, error) {
 		deps[i].HeadSign = lookupHeadsign(deps[i].TripID)
 	}
 	
-	log.Printf("departuresForStops produced %d departures (after filtering)", len(deps))
+	log.Printf("departuresForStation produced %d departures (after filtering)", len(deps))
 	return deps, nil
 }
 

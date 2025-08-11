@@ -392,8 +392,8 @@ func TestDeparturesForStopsArrivalOnly(t *testing.T) {
 	feedURLs = []string{server.URL}
 	defer func() { feedURLs = originalURLs }()
 
-	stations := []Station{{StopID: "635N", Name: "Test", Lat: 40.75, Lon: -73.98}}
-	deps, err := departuresForStops(stations)
+	station := Station{StopID: "635N", Name: "Test", Lat: 40.75, Lon: -73.98}
+	deps, err := departuresForStation(station)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
