@@ -88,6 +88,7 @@ var (
 	trips      []Trip
 	httpClient = &http.Client{Timeout: 12 * time.Second}
 	walkCache  gcache.Cache
+	stopsCache gcache.Cache
 	// NYC area bounding box (coarse)
 	minLat, maxLat = 40.3, 41.1
 	minLon, maxLon = -74.5, -73.3
@@ -160,6 +161,12 @@ func main() {
 		Expiration(24 * time.Hour).
 		Build()
 	
+	// Initialize stops cache: 24h TTL, stores the JSON response
+	stopsCache = gcache.New(1).
+		LRU().
+		Expiration(24 * time.Hour).
+		Build()
+	
 	if v := os.Getenv("STATIONS_CSV"); v != "" {
 		stationsCSV = v
 	}
@@ -204,7 +211,32 @@ func withCORS(h http.HandlerFunc) http.HandlerFunc {
 func handleStops(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	log.Printf("Request received: %s %s", r.Method, r.URL.String())
-	writeJSON(w, stations)
+	
+	// Check cache first
+	const cacheKey = "stops"
+	if cached, err := stopsCache.Get(cacheKey); err == nil {
+		if jsonData, ok := cached.([]byte); ok {
+			log.Printf("/api/stops cache hit")
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(jsonData)
+			log.Printf("Request completed in %.2f ms (from cache)", float64(time.Since(start).Microseconds())/1000.0)
+			return
+		}
+	}
+	
+	// Generate JSON and cache it
+	jsonData, err := json.Marshal(stations)
+	if err != nil {
+		httpError(w, http.StatusInternalServerError, "failed to marshal stations")
+		return
+	}
+	
+	// Store in cache
+	stopsCache.Set(cacheKey, jsonData)
+	log.Printf("/api/stops response cached")
+	
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(jsonData)
 	log.Printf("Request completed in %.2f ms", float64(time.Since(start).Microseconds())/1000.0)
 }
 

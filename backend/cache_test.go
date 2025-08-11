@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -206,5 +207,66 @@ func TestQuantizationPrecision(t *testing.T) {
 	if math.Abs(quantized-coord) > precision/2 {
 		t.Errorf("Quantization error too large: |%f - %f| = %f, should be <= %f",
 			quantized, coord, math.Abs(quantized-coord), precision/2)
+	}
+}
+
+func TestStopsCache(t *testing.T) {
+	// Setup a test cache with 24h TTL
+	testCache := gcache.New(1).
+		LRU().
+		Expiration(24 * time.Hour).
+		Build()
+	
+	// Save original cache and restore after test
+	originalCache := stopsCache
+	stopsCache = testCache
+	defer func() { stopsCache = originalCache }()
+	
+	// Test data
+	testStations := []Station{
+		{StopID: "TEST1", Name: "Test Station 1", Lat: 40.7359, Lon: -73.9906},
+		{StopID: "TEST2", Name: "Test Station 2", Lat: 40.7527, Lon: -73.9772},
+	}
+	
+	// Marshal test data to JSON
+	jsonData, err := json.Marshal(testStations)
+	if err != nil {
+		t.Fatalf("Failed to marshal test data: %v", err)
+	}
+	
+	// Test setting cache
+	const cacheKey = "stops"
+	stopsCache.Set(cacheKey, jsonData)
+	
+	// Verify cache retrieval
+	cached, err := stopsCache.Get(cacheKey)
+	if err != nil {
+		t.Errorf("Failed to retrieve from cache: %v", err)
+	}
+	
+	cachedData, ok := cached.([]byte)
+	if !ok {
+		t.Errorf("Expected []byte from cache, got %T", cached)
+	}
+	
+	// Verify cached data matches original
+	if string(cachedData) != string(jsonData) {
+		t.Errorf("Cached data doesn't match original")
+	}
+	
+	// Test that cache persists across multiple retrievals
+	for i := 0; i < 3; i++ {
+		cached2, err := stopsCache.Get(cacheKey)
+		if err != nil {
+			t.Errorf("Failed to retrieve from cache on attempt %d: %v", i+1, err)
+		}
+		if cachedData2, ok := cached2.([]byte); !ok || string(cachedData2) != string(jsonData) {
+			t.Errorf("Cache data inconsistent on attempt %d", i+1)
+		}
+	}
+	
+	// Test cache size (should be 1 entry max)
+	if stopsCache.Len(false) != 1 {
+		t.Errorf("Expected cache size of 1, got %d", stopsCache.Len(false))
 	}
 }

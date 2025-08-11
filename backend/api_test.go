@@ -11,12 +11,19 @@ import (
 )
 
 func TestAPIStopsEndpoint(t *testing.T) {
+	// Initialize stops cache for testing
+	stopsCache = gcache.New(1).
+		LRU().
+		Expiration(24 * time.Hour).
+		Build()
+	
 	// Initialize some test stations
 	stations = []Station{
 		{StopID: "R14N", Name: "14 St - Union Sq", Lat: 40.7359, Lon: -73.9906},
 		{StopID: "635S", Name: "Grand Central - 42 St", Lat: 40.7527, Lon: -73.9772},
 	}
 
+	// First request - should not be cached
 	req := httptest.NewRequest("GET", "/api/stops", nil)
 	w := httptest.NewRecorder()
 	handleStops(w, req)
@@ -34,13 +41,42 @@ func TestAPIStopsEndpoint(t *testing.T) {
 	if len(result) != 2 {
 		t.Fatalf("expected 2 stations, got %d", len(result))
 	}
+	
+	// Second request - should be cached
+	req2 := httptest.NewRequest("GET", "/api/stops", nil)
+	w2 := httptest.NewRecorder()
+	handleStops(w2, req2)
+	
+	resp2 := w2.Result()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200 on cached request, got %d", resp2.StatusCode)
+	}
+	
+	var result2 []Station
+	if err := json.NewDecoder(resp2.Body).Decode(&result2); err != nil {
+		t.Fatalf("failed to decode cached response: %v", err)
+	}
+	
+	if len(result2) != 2 {
+		t.Fatalf("expected 2 stations from cache, got %d", len(result2))
+	}
+	
+	// Verify cached data matches original
+	if result[0].StopID != result2[0].StopID || result[1].StopID != result2[1].StopID {
+		t.Errorf("cached data doesn't match original data")
+	}
 }
 
 func TestAPINearestEndpoint(t *testing.T) {
-	// Initialize test cache
+	// Initialize test caches
 	walkCache = gcache.New(10).
 		LRU().
 		Expiration(1 * time.Hour).
+		Build()
+	
+	stopsCache = gcache.New(1).
+		LRU().
+		Expiration(24 * time.Hour).
 		Build()
 	
 	// Initialize test stations
@@ -66,10 +102,15 @@ func TestAPINearestEndpoint(t *testing.T) {
 }
 
 func TestAPIByNameEndpoint(t *testing.T) {
-	// Initialize test cache
+	// Initialize test caches
 	walkCache = gcache.New(10).
 		LRU().
 		Expiration(1 * time.Hour).
+		Build()
+	
+	stopsCache = gcache.New(1).
+		LRU().
+		Expiration(24 * time.Hour).
 		Build()
 	
 	// Initialize test stations
@@ -92,10 +133,15 @@ func TestAPIByNameEndpoint(t *testing.T) {
 }
 
 func TestAPIInvalidRequests(t *testing.T) {
-	// Initialize test cache
+	// Initialize test caches
 	walkCache = gcache.New(10).
 		LRU().
 		Expiration(1 * time.Hour).
+		Build()
+	
+	stopsCache = gcache.New(1).
+		LRU().
+		Expiration(24 * time.Hour).
 		Build()
 	
 	stations = []Station{
@@ -137,10 +183,15 @@ func TestAPIInvalidRequests(t *testing.T) {
 
 // TestFeedOptimization verifies that stations with route information only fetch necessary feeds
 func TestFeedOptimization(t *testing.T) {
-	// Initialize test cache
+	// Initialize test caches
 	walkCache = gcache.New(10).
 		LRU().
 		Expiration(1 * time.Hour).
+		Build()
+	
+	stopsCache = gcache.New(1).
+		LRU().
+		Expiration(24 * time.Hour).
 		Build()
 	
 	// Set up test stations with different route configurations
@@ -229,10 +280,15 @@ func TestFeedOptimization(t *testing.T) {
 
 // TestFeedOptimizationWithRealStations tests the optimization with stations that have been loaded with route data
 func TestFeedOptimizationWithRealStations(t *testing.T) {
-	// Initialize test cache
+	// Initialize test caches
 	walkCache = gcache.New(10).
 		LRU().
 		Expiration(1 * time.Hour).
+		Build()
+	
+	stopsCache = gcache.New(1).
+		LRU().
+		Expiration(24 * time.Hour).
 		Build()
 	
 	// Initialize stations with route information
