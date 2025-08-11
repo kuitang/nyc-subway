@@ -215,7 +215,7 @@ describe('NearestStop Component', () => {
   });
 
   describe('Departure Time Color Coding', () => {
-    test('should apply too-late class when departure is less than walk time', () => {
+    test('should apply red class when departure is less than walk time', () => {
       const mockData = {
         station: mockStation,
         walking: { seconds: 300, meters: 250 }, // 5 minutes walk
@@ -233,7 +233,52 @@ describe('NearestStop Component', () => {
       render(<NearestStop data={mockData} />);
       
       const departureTime = screen.getByText("3 min");
-      expect(departureTime).toHaveClass('departure-time--too-late');
+      expect(departureTime).toHaveClass('departure-time--red');
+      expect(departureTime).not.toHaveClass('departure-time--good');
+    });
+
+    test('should apply red class when departure is more than 20 minutes', () => {
+      const mockData = {
+        station: mockStation,
+        walking: { seconds: 180, meters: 150 }, // 3 minutes walk
+        departures: [
+          {
+            route_id: "6",
+            stop_id: "R14N",
+            direction: "N",
+            eta_seconds: 1260, // 21 minutes
+            headsign: "Times Sq-42 St"
+          }
+        ]
+      };
+
+      render(<NearestStop data={mockData} />);
+      
+      const departureTime = screen.getByText("21 min");
+      expect(departureTime).toHaveClass('departure-time--red');
+      expect(departureTime).not.toHaveClass('departure-time--good');
+    });
+
+    test('should not apply red class when departure is exactly 20 minutes', () => {
+      const mockData = {
+        station: mockStation,
+        walking: { seconds: 180, meters: 150 }, // 3 minutes walk
+        departures: [
+          {
+            route_id: "6",
+            stop_id: "R14N",
+            direction: "N",
+            eta_seconds: 1200, // Exactly 20 minutes
+            headsign: "Times Sq-42 St"
+          }
+        ]
+      };
+
+      render(<NearestStop data={mockData} />);
+      
+      const departureTime = screen.getByText("20 min");
+      expect(departureTime).toHaveClass('departure-time');
+      expect(departureTime).not.toHaveClass('departure-time--red');
       expect(departureTime).not.toHaveClass('departure-time--good');
     });
 
@@ -256,7 +301,7 @@ describe('NearestStop Component', () => {
       
       const departureTime = screen.getByText("7 min");
       expect(departureTime).toHaveClass('departure-time--good');
-      expect(departureTime).not.toHaveClass('departure-time--too-late');
+      expect(departureTime).not.toHaveClass('departure-time--red');
     });
 
     test('should apply no special class when departure is 10 minutes or more', () => {
@@ -279,7 +324,7 @@ describe('NearestStop Component', () => {
       const departureTime = screen.getByText("15 min");
       expect(departureTime).toHaveClass('departure-time');
       expect(departureTime).not.toHaveClass('departure-time--good');
-      expect(departureTime).not.toHaveClass('departure-time--too-late');
+      expect(departureTime).not.toHaveClass('departure-time--red');
     });
 
     test('should handle edge case when departure equals walk time', () => {
@@ -300,9 +345,9 @@ describe('NearestStop Component', () => {
       render(<NearestStop data={mockData} />);
       
       const departureTime = screen.getByText("5 min");
-      // Should apply good class (not too-late) since it's not less than walk time
+      // Should apply good class (not red) since it's not less than walk time
       expect(departureTime).toHaveClass('departure-time--good');
-      expect(departureTime).not.toHaveClass('departure-time--too-late');
+      expect(departureTime).not.toHaveClass('departure-time--red');
     });
 
     test('should handle case with no walking data', () => {
@@ -325,7 +370,7 @@ describe('NearestStop Component', () => {
       const departureTime = screen.getByText("3 min");
       // Should apply good class since eta < 10 and no walk time to compare
       expect(departureTime).toHaveClass('departure-time--good');
-      expect(departureTime).not.toHaveClass('departure-time--too-late');
+      expect(departureTime).not.toHaveClass('departure-time--red');
     });
 
     test('should handle "Now" departure correctly', () => {
@@ -346,8 +391,8 @@ describe('NearestStop Component', () => {
       render(<NearestStop data={mockData} />);
       
       const departureTime = screen.getByText("Now");
-      // Should apply too-late class since 0 < walk time (5)
-      expect(departureTime).toHaveClass('departure-time--too-late');
+      // Should apply red class since 0 < walk time (5)
+      expect(departureTime).toHaveClass('departure-time--red');
       expect(departureTime).not.toHaveClass('departure-time--good');
     });
 
@@ -378,7 +423,7 @@ describe('NearestStop Component', () => {
       const firstDeparture = screen.getByText("2 min");
       const secondDeparture = screen.getByText("6 min");
       
-      expect(firstDeparture).toHaveClass('departure-time--too-late');
+      expect(firstDeparture).toHaveClass('departure-time--red');
       expect(secondDeparture).toHaveClass('departure-time--good');
     });
   });
@@ -435,22 +480,22 @@ describe('NearestStop Component', () => {
 
       // Test 90 seconds = 2 minutes (rounded up)
       render(<NearestStop data={mockDataWithWalk90s} />);
-      expect(screen.getByText("2 min walk")).toBeInTheDocument();
+      expect(screen.getByText("🚶 2 min walk")).toBeInTheDocument();
       cleanup();
 
       // Test 61 seconds = 2 minutes (rounded up)
       render(<NearestStop data={mockDataWithWalk61s} />);
-      expect(screen.getByText("2 min walk")).toBeInTheDocument();
+      expect(screen.getByText("🚶 2 min walk")).toBeInTheDocument();
       cleanup();
 
       // Test 60 seconds = 1 minute (exact)
       render(<NearestStop data={mockDataWithWalk60s} />);
-      expect(screen.getByText("1 min walk")).toBeInTheDocument();
+      expect(screen.getByText("🚶 1 min walk")).toBeInTheDocument();
       cleanup();
 
       // Test 59 seconds = 1 minute (rounded up)
       render(<NearestStop data={mockDataWithWalk59s} />);
-      expect(screen.getByText("1 min walk")).toBeInTheDocument();
+      expect(screen.getByText("🚶 1 min walk")).toBeInTheDocument();
     });
 
     test('should round down ETA time (Math.floor)', () => {
@@ -541,14 +586,14 @@ describe('NearestStop Component', () => {
       render(<NearestStop data={mockData} />);
       
       // Walk time should be 2 minutes (overestimated)
-      expect(screen.getByText("2 min walk")).toBeInTheDocument();
+      expect(screen.getByText("🚶 2 min walk")).toBeInTheDocument();
       
       // ETA should be 1 minute (underestimated)
       expect(screen.getByText("1 min")).toBeInTheDocument();
       
       // This departure should be marked as too late since 1 < 2
       const departureTime = screen.getByText("1 min");
-      expect(departureTime).toHaveClass('departure-time--too-late');
+      expect(departureTime).toHaveClass('departure-time--red');
     });
   });
 });

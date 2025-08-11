@@ -1,18 +1,41 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { getLineColor } from '../constants/subwayColors';
 import './NearestStop.css';
 
 function NearestStop({ data }) {
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
+
   if (!data || !data.station) {
     return null;
   }
 
   const { station, walking, departures } = data;
   const walkTimeMinutes = walking ? Math.ceil(walking.seconds / 60) : null;
+
+  const formatDateTime = () => {
+    const options = { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit'
+    };
+    return currentTime.toLocaleDateString('en-US', options);
+  };
   
   const formatWalkTime = () => {
     if (!walkTimeMinutes) return '';
-    return `${walkTimeMinutes} min walk`;
+    return `🚶 ${walkTimeMinutes} min walk`;
   };
 
   const formatETA = (etaMinutes) => {
@@ -22,7 +45,10 @@ function NearestStop({ data }) {
 
   const getDepartureTimeClass = (etaMinutes, walkTimeMinutes) => {
     if (walkTimeMinutes && etaMinutes < walkTimeMinutes) {
-      return 'departure-time--too-late';
+      return 'departure-time--red';
+    }
+    if (etaMinutes > 20) {
+      return 'departure-time--red';
     }
     if (etaMinutes < 10) {
       return 'departure-time--good';
@@ -68,6 +94,7 @@ function NearestStop({ data }) {
 
   return (
     <div className="nearest-stop">
+      <div className="current-time">{formatDateTime()}</div>
       <div className="station-header">
         <h1 className="station-name">{station.stop_name}</h1>
         {walking && (
