@@ -36,8 +36,8 @@ echo "$response" | jq '{
 # Verify the 2 per route/direction limit
 echo
 echo "Verifying departure limits (max 2 per route+direction):"
-echo "$response" | jq '.departures | group_by(.route_id + "_" + .direction) | map({
-  route_direction: .[0].route_id + "_" + .[0].direction,
+echo "$response" | jq '.departures | group_by("\(.route_id)_\(.direction)") | map({
+  route_direction: "\(.[0].route_id)_\(.[0].direction)",
   count: length
 }) | .[] | select(.count > 2)'
 if [ $? -eq 0 ]; then
@@ -45,26 +45,28 @@ if [ $? -eq 0 ]; then
 fi
 echo
 
-echo "3) Testing /api/departures/by-name endpoint (Grand Central):"
-echo "------------------------------------------------------------"
-response=$(curl -s "$BASE_URL/api/departures/by-name?name=Grand%20Central%20-%2042%20St")
+echo "3) Testing /api/departures/by-id endpoint (Times Sq-42 St, ID: 127):"
+echo "---------------------------------------------------------------------"
+response=$(curl -s "$BASE_URL/api/departures/by-id?id=127")
 echo "$response" | jq '{
   station: .station.stop_name,
+  station_id: .station.gtfs_stop_id,
   total_departures: (.departures | length),
-  departures_by_route: (.departures | group_by(.route_id + "_" + .direction) | map({
-    route_direction: .[0].route_id + "_" + .[0].direction,
+  departures_by_route: (.departures | group_by("\(.route_id)_\(.direction)") | map({
+    route_direction: "\(.[0].route_id)_\(.[0].direction)",
     count: length,
     times: map(.eta_minutes)
   }))
 }'
 echo
 
-echo "4) Testing /api/departures/by-name with partial match (\"Union\"):"
-echo "-----------------------------------------------------------------"
-curl -s "$BASE_URL/api/departures/by-name?name=Union" | jq '{
+echo "4) Testing /api/departures/by-id with another station (14 St-Union Sq, ID: 635):"
+echo "---------------------------------------------------------------------------------"
+curl -s "$BASE_URL/api/departures/by-id?id=635" | jq '{
   station: .station.stop_name,
+  station_id: .station.gtfs_stop_id,
   total_departures: (.departures | length)
-}' 2>/dev/null || echo "No match or error (expected if no Union stations in data)"
+}'
 echo
 
 echo "5) Testing error cases:"
@@ -78,11 +80,11 @@ curl -s "$BASE_URL/api/departures/nearest?lon=-73.9855" | jq '.error'
 echo "c) Invalid latitude format:"
 curl -s "$BASE_URL/api/departures/nearest?lat=abc&lon=-73.9855" | jq '.error'
 
-echo "d) Station name not found:"
-curl -s "$BASE_URL/api/departures/by-name?name=NoSuchStationExists" | jq '.error'
+echo "d) Station ID not found:"
+curl -s "$BASE_URL/api/departures/by-id?id=NoSuchIDExists" | jq '.error'
 
-echo "e) Missing name parameter:"
-curl -s "$BASE_URL/api/departures/by-name" | jq '.error'
+echo "e) Missing ID parameter:"
+curl -s "$BASE_URL/api/departures/by-id" | jq '.error'
 echo
 
 echo "================================="

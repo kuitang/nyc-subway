@@ -1,0 +1,85 @@
+name: Run Tests
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.19'
+    
+    - name: Install dependencies
+      run: |
+        cd backend
+        go mod download
+    
+    - name: Run backend tests
+      run: |
+        cd backend
+        go test -v -cover ./...
+    
+    - name: Generate coverage report
+      run: |
+        cd backend
+        go test -coverprofile=coverage.out ./...
+        go tool cover -func=coverage.out
+
+  frontend-tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+    
+    - name: Install dependencies
+      run: |
+        cd frontend
+        npm ci
+    
+    - name: Run frontend tests
+      run: |
+        cd frontend
+        npm test -- --watchAll=false --coverage
+    
+    - name: Run build
+      run: |
+        cd frontend
+        npm run build
+
+  api-tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.19'
+    
+    - name: Start backend server
+      run: |
+        cd backend
+        go run main.go &
+        sleep 5  # Wait for server to start
+    
+    - name: Run API tests
+      run: |
+        chmod +x tests/test_api.sh
+        ./tests/test_api.sh
