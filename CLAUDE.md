@@ -33,8 +33,8 @@ cd frontend && npm start
 # Start with custom port and API endpoint
 cd frontend && REACT_APP_API_BASE_URL=http://localhost:8081 PORT=3001 npm start
 
-# Run tests
-cd frontend && npm test
+# Run tests (with --watchAll=false to avoid interactive mode)
+cd frontend && npm test -- --watchAll=false
 
 # Build for production
 cd frontend && npm build

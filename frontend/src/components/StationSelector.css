@@ -10,3 +10,74 @@
   display: flex;
   gap: 0.25rem;
 }
+
+/* React-Select Custom Styles */
+.station-select__control {
+  background-color: #1a1a1a !important;
+  border-color: #2a2a2a !important;
+  font-size: 16px !important;
+  min-height: 38px;
+}
+
+.station-select__control:hover {
+  border-color: #4a4a4a !important;
+}
+
+.station-select__control--is-focused {
+  border-color: #4a4a4a !important;
+  box-shadow: 0 0 0 1px #4a4a4a !important;
+}
+
+.station-select__menu {
+  background-color: #1a1a1a !important;
+  border: 1px solid #2a2a2a !important;
+}
+
+.station-select__option {
+  background-color: #1a1a1a !important;
+  color: #ffffff !important;
+  cursor: pointer !important;
+}
+
+.station-select__option--is-focused {
+  background-color: #2a2a2a !important;
+}
+
+.station-select__option--is-selected {
+  background-color: #3a3a3a !important;
+}
+
+.station-select__option:active {
+  background-color: #3a3a3a !important;
+}
+
+.station-select__single-value {
+  color: #ffffff !important;
+  font-size: 16px !important;
+}
+
+.station-select__placeholder {
+  color: #666666 !important;
+  font-size: 16px !important;
+}
+
+.station-select__input-container {
+  color: #ffffff !important;
+}
+
+.station-select__input {
+  color: #ffffff !important;
+  font-size: 16px !important;
+}
+
+.station-select__indicator {
+  color: #666666 !important;
+}
+
+.station-select__indicator:hover {
+  color: #999999 !important;
+}
+
+.station-select__indicator-separator {
+  background-color: #2a2a2a !important;
+}
