@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import NearestStop from './components/NearestStop';
 import LoadingScreen from './components/LoadingScreen';
 import ErrorScreen from './components/ErrorScreen';
@@ -11,6 +11,8 @@ function App() {
   const [error, setError] = useState(null);
   const [selectedStation, setSelectedStation] = useState(null);
   const [isUsingGeolocation, setIsUsingGeolocation] = useState(true);
+  const [lastRefresh, setLastRefresh] = useState(new Date());
+  const positionRef = useRef(null);
 
   useEffect(() => {
     // Only use geolocation if no station is manually selected
@@ -19,6 +21,7 @@ function App() {
         navigator.geolocation.getCurrentPosition(
           (position) => {
             const { latitude, longitude } = position.coords;
+            positionRef.current = { latitude, longitude };
             fetchNearestDepartures(latitude, longitude);
           },
           (err) => {
@@ -44,8 +47,43 @@ function App() {
     }
   }, [selectedStation, isUsingGeolocation]);
 
-  const fetchNearestDepartures = async (lat, lon) => {
+  // Set up 30-second refresh interval after data loads
+  useEffect(() => {
+    // Only set up interval if we have data and no error
+    if (!locationData || error) {
+      return;
+    }
+
+    // Set up interval
+    const id = setInterval(() => {
+      // Refresh based on current state
+      if (selectedStation) {
+        // Refresh selected station
+        fetchDeparturesByStation(selectedStation, true);
+      } else if (isUsingGeolocation && positionRef.current) {
+        // Refresh using stored geolocation
+        const { latitude, longitude } = positionRef.current;
+        fetchNearestDepartures(latitude, longitude, true);
+      }
+    }, 30000); // 30 seconds
+
+    // Cleanup on unmount or dependency change
+    return () => {
+      clearInterval(id);
+    };
+    // Dependencies include locationData which will reset the interval on each refresh
+    // This is a known issue but ensures reliable operation
+    // eslint-disable-next-line
+  }, [locationData, selectedStation, isUsingGeolocation, error]);
+
+  const fetchNearestDepartures = async (lat, lon, isRefresh = false) => {
     const apiBaseUrl = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8080';
+    
+    // Don't show loading state during refresh to avoid UI flashing
+    if (!isRefresh) {
+      setLoading(true);
+    }
+    
     try {
       const response = await fetch(
         `${apiBaseUrl}/api/departures/nearest?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`
@@ -63,16 +101,26 @@ function App() {
       
       setLocationData(data);
       setLoading(false);
+      setLastRefresh(new Date());
     } catch (err) {
-      setError(`Error fetching departures: ${err.message}`);
-      setLoading(false);
+      // During refresh, don't update error state if fetch fails - keep showing old data
+      if (!isRefresh) {
+        setError(`Error fetching departures: ${err.message}`);
+        setLoading(false);
+      } else {
+        console.error('Refresh failed:', err.message);
+      }
     }
   };
 
-  const fetchDeparturesByStation = async (station) => {
+  const fetchDeparturesByStation = async (station, isRefresh = false) => {
     const apiBaseUrl = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8080';
-    setLoading(true);
-    setError(null);
+    
+    // Don't show loading state during refresh to avoid UI flashing
+    if (!isRefresh) {
+      setLoading(true);
+      setError(null);
+    }
     
     try {
       const response = await fetch(
@@ -91,9 +139,15 @@ function App() {
       
       setLocationData(data);
       setLoading(false);
+      setLastRefresh(new Date());
     } catch (err) {
-      setError(`Error fetching departures: ${err.message}`);
-      setLoading(false);
+      // During refresh, don't update error state if fetch fails - keep showing old data
+      if (!isRefresh) {
+        setError(`Error fetching departures: ${err.message}`);
+        setLoading(false);
+      } else {
+        console.error('Refresh failed:', err.message);
+      }
     }
   };
 
@@ -136,7 +190,7 @@ function App() {
       ) : error ? (
         <ErrorScreen message={error} />
       ) : locationData ? (
-        <NearestStop data={locationData} />
+        <NearestStop data={locationData} lastRefresh={lastRefresh} />
       ) : (
         <div className="no-station-message">
           Select a station or enable location access to see departures

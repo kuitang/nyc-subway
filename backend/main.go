@@ -219,32 +219,45 @@ func handleStops(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	log.Printf("Request received: %s %s", r.Method, r.URL.String())
 	
+	var jsonData []byte
+	var cacheHit bool
+	
 	// Check cache first
 	const cacheKey = "stops"
 	if cached, err := stopsCache.Get(cacheKey); err == nil {
-		if jsonData, ok := cached.([]byte); ok {
+		if data, ok := cached.([]byte); ok {
+			jsonData = data
+			cacheHit = true
 			log.Printf("/api/stops cache hit")
-			w.Header().Set("Content-Type", "application/json")
-			w.Write(jsonData)
-			log.Printf("Request completed in %.2f ms (from cache)", float64(time.Since(start).Microseconds())/1000.0)
-			return
 		}
 	}
 	
-	// Generate JSON and cache it
-	jsonData, err := json.Marshal(stations)
-	if err != nil {
-		httpError(w, http.StatusInternalServerError, "failed to marshal stations")
-		return
+	// Generate JSON if not cached
+	if jsonData == nil {
+		var err error
+		jsonData, err = json.Marshal(stations)
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, "failed to marshal stations")
+			return
+		}
+		// Store in cache
+		stopsCache.Set(cacheKey, jsonData)
+		log.Printf("/api/stops response cached")
 	}
 	
-	// Store in cache
-	stopsCache.Set(cacheKey, jsonData)
-	log.Printf("/api/stops response cached")
-	
+	// Set headers and write response
 	w.Header().Set("Content-Type", "application/json")
+	// HTTP cache headers: Browser caches station list for 24h since it rarely changes.
+	// This eliminates unnecessary network requests when users navigate between pages,
+	// while our server-side cache ensures fast responses for new clients.
+	w.Header().Set("Cache-Control", "public, max-age=86400")
 	w.Write(jsonData)
-	log.Printf("Request completed in %.2f ms", float64(time.Since(start).Microseconds())/1000.0)
+	
+	if cacheHit {
+		log.Printf("Request completed in %.2f ms (from cache)", float64(time.Since(start).Microseconds())/1000.0)
+	} else {
+		log.Printf("Request completed in %.2f ms", float64(time.Since(start).Microseconds())/1000.0)
+	}
 }
 
 func handleNearest(w http.ResponseWriter, r *http.Request) {
@@ -313,6 +326,10 @@ func handleByID(w http.ResponseWriter, r *http.Request) {
 
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
+	// HTTP cache headers: Allow browsers to cache departure data for 30s (matching our server cache TTL).
+	// stale-while-revalidate=10 lets browsers use stale data for 10s extra while fetching updates in background.
+	// This provides instant responses for users switching between stations while keeping data fresh.
+	w.Header().Set("Cache-Control", "public, max-age=30, stale-while-revalidate=10")
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(v)

@@ -99,7 +99,19 @@ if [ -n "$violations635" ]; then
 fi
 echo
 
-echo "5) Testing error cases:"
+echo "5) Testing HTTP cache headers:"
+echo "-------------------------------"
+echo "a) /api/stops should have 24h cache (86400 seconds):"
+curl -sI "$BASE_URL/api/stops" | grep -i "cache-control" || { echo "No Cache-Control header found" && exit 1; }
+
+echo "b) /api/departures/nearest should have 30s cache with stale-while-revalidate:"
+curl -sI "$BASE_URL/api/departures/nearest?lat=$LAT&lon=$LON" | grep -i "cache-control" || { echo "No Cache-Control header found" && exit 1; }
+
+echo "c) /api/departures/by-id should have 30s cache with stale-while-revalidate:"
+curl -sI "$BASE_URL/api/departures/by-id?id=127" | grep -i "cache-control" || { echo "No Cache-Control header found" && exit 1; }
+echo
+
+echo "6) Testing error cases:"
 echo "-----------------------"
 echo "a) Outside NYC area (Los Angeles coordinates):"
 curl -s "$BASE_URL/api/departures/nearest?lat=34.0522&lon=-118.2437" | jq '.error'

@@ -75,10 +75,14 @@ PATH=/tmp/gopath/bin:$PATH protoc --go_out=gtfs_realtime --go_opt=paths=source_r
 - **React SPA** with functional components
 - **Components**:
   - `App.js` - Main component handling geolocation and station selection
-  - `NearestStop.js` - Displays departures with auto-refresh
+  - `NearestStop.js` - Displays departures with refresh indicator
   - `StationSelector.js` - Autocomplete station selector using react-select
   - `LoadingScreen.js` / `ErrorScreen.js` - UI states
 - **Auto-refresh**: 30-second interval for departure updates
+  - Interval starts after initial data loads
+  - Maintains same station during refresh (no UI flashing)
+  - Shows "updated Xs ago" indicator
+  - Graceful error handling - keeps old data if refresh fails
 - **Environment Variables**: `REACT_APP_API_BASE_URL` for API endpoint
 
 ### Key Implementation Details

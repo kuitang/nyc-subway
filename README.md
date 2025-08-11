@@ -82,6 +82,18 @@ go test -v
 ```bash
 cd frontend
 npm test
+
+# Run specific tests
+npm test -- --testNamePattern="30s Refresh" --watchAll=false
+```
+
+### API Integration Tests
+```bash
+# Test all API endpoints (backend must be running)
+./tests/test_api.sh
+
+# Test 30-second refresh behavior
+./test_refresh.sh
 ```
 
 ## API Endpoints

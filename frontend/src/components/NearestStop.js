@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { getLineColor } from '../constants/subwayColors';
 import './NearestStop.css';
 
-function NearestStop({ data }) {
+function NearestStop({ data, lastRefresh }) {
   const [currentTime, setCurrentTime] = useState(new Date());
 
   useEffect(() => {
@@ -31,6 +31,15 @@ function NearestStop({ data }) {
       second: '2-digit'
     };
     return currentTime.toLocaleDateString('en-US', options);
+  };
+  
+  const formatLastRefresh = () => {
+    if (!lastRefresh) return '';
+    const secondsAgo = Math.floor((currentTime - lastRefresh) / 1000);
+    if (secondsAgo < 5) return 'just updated';
+    if (secondsAgo < 60) return `updated ${secondsAgo}s ago`;
+    const minutesAgo = Math.floor(secondsAgo / 60);
+    return `updated ${minutesAgo}m ago`;
   };
   
   const formatWalkTime = () => {
@@ -94,7 +103,12 @@ function NearestStop({ data }) {
 
   return (
     <div className="nearest-stop">
-      <div className="current-time">{formatDateTime()}</div>
+      <div className="current-time">
+        {formatDateTime()}
+        {lastRefresh && (
+          <span className="refresh-indicator"> • {formatLastRefresh()}</span>
+        )}
+      </div>
       <div className="station-header">
         <div className="station-info">
           <h1 className="station-name">

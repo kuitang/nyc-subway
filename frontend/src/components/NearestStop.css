@@ -68,6 +68,23 @@
   font-variant-numeric: tabular-nums;
 }
 
+.refresh-indicator {
+  color: var(--color-gray-light);
+  font-size: 0.85em;
+  margin-left: 0.5rem;
+  opacity: 0.7;
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.7;
+  }
+}
+
 .station-header {
   padding: 1.5rem var(--gap-large);
   display: flex;
