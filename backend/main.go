@@ -46,10 +46,11 @@ import (
 )
 
 type Station struct {
-	StopID string  `json:"gtfs_stop_id"`
-	Name   string  `json:"stop_name"`
-	Lat    float64 `json:"lat"`
-	Lon    float64 `json:"lon"`
+	StopID string   `json:"gtfs_stop_id"`
+	Name   string   `json:"stop_name"`
+	Lat    float64  `json:"lat"`
+	Lon    float64  `json:"lon"`
+	Routes []string `json:"routes,omitempty"` // Routes serving this station (e.g., ["N", "W"])
 }
 
 type NearestResponse struct {
@@ -103,8 +104,49 @@ var (
 		"https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-si",
 	}
 
+	// Mapping of routes to their feed URLs
+	routeToFeed = map[string]string{
+		// Base feed (numbered lines + Grand Central Shuttle)
+		"1": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs",
+		"2": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs",
+		"3": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs",
+		"4": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs",
+		"5": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs",
+		"6": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs",
+		"7": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs",
+		"GS": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs", // Grand Central Shuttle
+		// ACE feed
+		"A": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-ace",
+		"C": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-ace",
+		"E": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-ace",
+		"H": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-ace", // Rockaway Park Shuttle
+		"FS": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-ace", // Franklin Avenue Shuttle
+		// BDFM feed
+		"B": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-bdfm",
+		"D": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-bdfm",
+		"F": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-bdfm",
+		"M": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-bdfm",
+		// G feed
+		"G": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-g",
+		// JZ feed
+		"J": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-jz",
+		"Z": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-jz",
+		// L feed
+		"L": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-l",
+		// NQRW feed
+		"N": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-nqrw",
+		"Q": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-nqrw",
+		"R": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-nqrw",
+		"W": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-nqrw",
+		// Staten Island Railway
+		"SI": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-si",
+		"SIR": "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-si",
+	}
+
 	// Default stations CSV from NY Open Data (no token needed)
 	stationsCSV = "https://data.ny.gov/api/views/39hk-dx4f/rows.csv?accessType=DOWNLOAD"
+	// MTA Stations.csv with route information
+	mtaStationsCSV = "http://web.mta.info/developers/data/nyct/subway/Stations.csv"
 	gtfsZipURL = "http://web.mta.info/developers/data/nyct/subway/google_transit.zip"
 )
 
@@ -160,11 +202,14 @@ func withCORS(h http.HandlerFunc) http.HandlerFunc {
 
 
 func handleStops(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	log.Printf("Request received: %s %s", r.Method, r.URL.String())
 	writeJSON(w, stations)
+	log.Printf("Request completed in %.2f ms", float64(time.Since(start).Microseconds())/1000.0)
 }
 
 func handleNearest(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	log.Printf("Request received: %s %s", r.Method, r.URL.String())
 	lat, lon, err := parseLatLon(r)
 	if err != nil {
@@ -192,9 +237,11 @@ func handleNearest(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := NearestResponse{Station: nearest, Walking: walk, Departures: deps}
 	writeJSON(w, resp)
+	log.Printf("Request completed in %.2f ms", float64(time.Since(start).Microseconds())/1000.0)
 }
 
 func handleByName(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	log.Printf("Request received: %s %s", r.Method, r.URL.String())
 	name := strings.TrimSpace(r.URL.Query().Get("name"))
 	if name == "" {
@@ -213,13 +260,14 @@ func handleByName(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("handleByName matched %d station records for name %q", len(matched), name)
-	deps, err := departuresForStops(matched)
+	deps, err := departuresForStation(matched[0])
 	if err != nil {
 		httpError(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	resp := NearestResponse{Station: matched[0], Departures: deps}
 	writeJSON(w, resp)
+	log.Printf("Request completed in %.2f ms", float64(time.Since(start).Microseconds())/1000.0)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -330,22 +378,20 @@ func walkingTime(fromLat, fromLon, toLat, toLon float64) (*WalkResult, error) {
 }
 
 func departuresForStation(s Station) ([]Departure, error) {
-	return departuresForStops([]Station{s})
-}
-
-func departuresForStops(sts []Station) ([]Departure, error) {
 	// Build sets for exact stop IDs and their "base" IDs (without trailing direction letter).
 	stopExact := map[string]struct{}{}
 	stopBase := map[string]struct{}{}
-	for _, s := range sts {
-		stopExact[s.StopID] = struct{}{}
-		stopBase[baseStopID(s.StopID)] = struct{}{}
-	}
+	stopExact[s.StopID] = struct{}{}
+	stopBase[baseStopID(s.StopID)] = struct{}{}
 
 	now := time.Now().Unix()
 	deps := make([]Departure, 0, 64)
 
-	for _, u := range feedURLs {
+	// Determine which feeds to fetch based on station's routes
+	feeds := getFeedsForStation(s)
+	log.Printf("Station %s serves routes %v, fetching %d feed(s)", s.Name, s.Routes, len(feeds))
+
+	for _, u := range feeds {
 		feed, err := fetchGTFS(u)
 		if err != nil {
 			log.Printf("fetchGTFS error for %s: %v", u, err)
@@ -420,8 +466,59 @@ func departuresForStops(sts []Station) ([]Departure, error) {
 		deps[i].HeadSign = lookupHeadsign(deps[i].TripID)
 	}
 	
-	log.Printf("departuresForStops produced %d departures (after filtering)", len(deps))
+	log.Printf("departuresForStation produced %d departures (after filtering)", len(deps))
 	return deps, nil
+}
+
+// getFeedsForStation returns the feed URLs needed for a station based on its routes
+func getFeedsForStation(s Station) []string {
+	// If no route information, fall back to fetching all feeds
+	if len(s.Routes) == 0 {
+		log.Printf("No route information for station %s, using all feeds", s.Name)
+		return feedURLs
+	}
+	
+	// Use a map to deduplicate feed URLs
+	feedSet := make(map[string]struct{})
+	
+	for _, route := range s.Routes {
+		if feedURL, ok := routeToFeed[route]; ok {
+			feedSet[feedURL] = struct{}{}
+		} else {
+			// Handle special cases and variants
+			// Express variants (e.g., 6X -> 6)
+			if len(route) > 1 && route[len(route)-1] == 'X' {
+				baseRoute := route[:len(route)-1]
+				if feedURL, ok := routeToFeed[baseRoute]; ok {
+					feedSet[feedURL] = struct{}{}
+					continue
+				}
+			}
+			// S could be any shuttle, check common ones
+			if route == "S" {
+				// Grand Central Shuttle is in base feed
+				feedSet["https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs"] = struct{}{}
+				// Franklin Avenue Shuttle is in ACE feed
+				feedSet["https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-ace"] = struct{}{}
+			} else {
+				log.Printf("Unknown route %s for station %s", route, s.Name)
+			}
+		}
+	}
+	
+	// Convert set to slice
+	var feeds []string
+	for feed := range feedSet {
+		feeds = append(feeds, feed)
+	}
+	
+	// If no feeds matched, fall back to all feeds
+	if len(feeds) == 0 {
+		log.Printf("No feeds matched for station %s routes %v, using all feeds", s.Name, s.Routes)
+		return feedURLs
+	}
+	
+	return feeds
 }
 
 // limitDeparturesByRouteAndDirection limits departures to at most 2 per route+direction combination
@@ -498,6 +595,66 @@ func loadStations(ctx context.Context, csvURL string) error {
 		out = append(out, Station{StopID: stopID, Name: name, Lat: lat, Lon: lon})
 	}
 	stations = out
+	
+	// Load route mappings from MTA Stations.csv
+	if err := loadRouteMapping(ctx); err != nil {
+		log.Printf("Warning: failed to load route mappings: %v", err)
+		// Continue without route optimization if loading fails
+	}
+	
+	return nil
+}
+
+// loadRouteMapping loads the MTA Stations.csv to extract route information for each stop
+func loadRouteMapping(ctx context.Context) error {
+	req, _ := http.NewRequestWithContext(ctx, "GET", mtaStationsCSV, nil)
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("download MTA stations: %w", err)
+	}
+	defer resp.Body.Close()
+	r := csv.NewReader(resp.Body)
+	r.FieldsPerRecord = -1
+
+	// MTA Stations.csv uses different column names
+	need := []string{"gtfsstopid", "daytimeroutes"}
+	idx, err := parseCSVHeaders(r, need, "mta-stations")
+	if err != nil {
+		return err
+	}
+	
+	// Create a map for quick lookup
+	routeMap := make(map[string][]string)
+	
+	for {
+		row, err := r.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("read MTA stations row: %w", err)
+		}
+		
+		stopID := row[idx["gtfsstopid"]]
+		routesStr := row[idx["daytimeroutes"]]
+		
+		if stopID == "" || routesStr == "" {
+			continue
+		}
+		
+		// Parse routes (e.g., "N W" or "A C E")
+		routes := strings.Fields(routesStr)
+		routeMap[stopID] = routes
+	}
+	
+	// Update stations with route information
+	for i := range stations {
+		if routes, ok := routeMap[stations[i].StopID]; ok {
+			stations[i].Routes = routes
+		}
+	}
+	
+	log.Printf("Loaded route mappings for %d stops", len(routeMap))
 	return nil
 }
 
