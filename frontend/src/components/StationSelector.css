@@ -1,0 +1,12 @@
+/* StationSelector Component Styles */
+
+.station-option-content {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.station-routes-container {
+  display: flex;
+  gap: 0.25rem;
+}

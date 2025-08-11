@@ -1,57 +1,122 @@
 /* NearestStop Component - NYC Subway Styling */
 
+:root {
+  /* Colors */
+  --color-white: #fff;
+  --color-black: #000;
+  --color-gray-light: #C8C9CA;
+  --color-gray-border: #333;
+  --color-red: #dc2626;
+  --color-green: #16a34a;
+  --color-bg-light: #f0f0f0;
+  
+  /* Spacing */
+  --gap: 0.5rem;
+  --gap-large: 1rem;
+  
+  /* Route circle sizes */
+  --circle-station: 36px;
+  --circle-line: 32px;
+  --circle-dropdown: 20px;
+  
+  /* Font sizes - only 2 needed */
+  --font-header: 1.8rem;
+  --font-small: 0.75rem;
+}
+
+/* Utility Classes */
+.flex-center {
+  display: flex;
+  align-items: center;
+}
+
+.flex-between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.flex-column {
+  display: flex;
+  flex-direction: column;
+}
+
+.flex-inline {
+  display: inline-flex;
+}
+
+.flex-shrink-0 {
+  flex-shrink: 0;
+}
+
+.flex-1 {
+  flex: 1;
+}
+
 .nearest-stop {
   min-height: 100vh;
-  background-color: #000;
-  color: #fff;
-  padding: 1rem;
+  background-color: var(--color-black);
+  color: var(--color-white);
+  padding: var(--gap-large);
   max-width: 800px;
   margin: 0 auto;
 }
 
 .current-time {
-  padding: 0.5rem 1rem;
+  padding: var(--gap) var(--gap-large);
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
 
 .station-header {
-  padding: 1.5rem 1rem;
+  padding: 1.5rem var(--gap-large);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 2px solid #333;
-  margin-bottom: 1rem;
+  border-bottom: 2px solid var(--color-gray-border);
+  margin-bottom: var(--gap-large);
+}
+
+.station-info {
+  flex: 1;
 }
 
 .station-name {
-  font-size: 1.8rem;
+  font-size: var(--font-header);
   font-weight: 600;
   margin: 0;
   letter-spacing: -0.02em;
+  display: flex;
+  align-items: center;
+  gap: var(--gap-large);
+}
+
+.station-routes {
+  display: inline-flex;
+  gap: var(--gap);
+  flex-shrink: 0;
 }
 
 .walk-time {
-  font-size: 0.9rem;
-  color: #C8C9CA;
+  color: var(--color-gray-light);
   font-weight: 500;
 }
 
 .departures-list {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: var(--gap-large);
 }
 
 .departure-group {
-  background-color: #fff;
-  color: #000;
+  background-color: var(--color-white);
+  color: var(--color-black);
   border-radius: 8px;
-  padding: 1rem;
+  padding: 0.75rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border: 1px solid #333;
+  border: 1px solid var(--color-gray-border);
 }
 
 .route-header {
@@ -61,58 +126,73 @@
   flex: 1;
 }
 
-.line-circle {
-  width: 32px;
-  height: 32px;
+/* Base route circle styling - common properties */
+.route-circle {
   border-radius: 50%;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: var(--color-white);
   font-weight: 700;
-  font-size: 0.9rem;
   text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
   flex-shrink: 0;
 }
 
+/* Station header route circles */
+.route-circle.station-route {
+  width: var(--circle-station);
+  height: var(--circle-station);
+}
+
+/* Departure list route circles */
+.route-circle.line-circle {
+  width: var(--circle-line);
+  height: var(--circle-line);
+}
+
+/* Dropdown route circles */
+.route-circle.dropdown-route {
+  width: var(--circle-dropdown);
+  height: var(--circle-dropdown);
+  font-size: var(--font-small);
+}
+
 .direction-text {
-  font-size: 1rem;
   font-weight: 500;
-  color: #000;
+  color: var(--color-black);
 }
 
 .departure-times {
   display: flex;
-  gap: 1rem;
+  gap: var(--gap-large);
   align-items: center;
 }
 
 .departure-time {
-  background-color: #f0f0f0;
-  color: #000;
-  padding: 0.5rem 1rem;
+  background-color: var(--color-bg-light);
+  color: var(--color-black);
+  padding: var(--gap) var(--gap-large);
   border-radius: 20px;
   font-weight: 600;
-  font-size: 0.9rem;
   min-width: 4em;
   text-align: center;
 }
 
 /* Departure time color coding classes */
 .departure-time--red {
-  background-color: #dc2626;
-  color: #fff;
+  background-color: var(--color-red);
+  color: var(--color-white);
 }
 
 .departure-time--good {
-  background-color: #16a34a;
-  color: #fff;
+  background-color: var(--color-green);
+  color: var(--color-white);
 }
 
 .no-departures {
   text-align: center;
-  padding: 3rem 1rem;
-  color: #C8C9CA;
+  padding: 3rem var(--gap-large);
+  color: var(--color-gray-light);
 }
 
 .no-departures p {
@@ -122,16 +202,18 @@
 
 /* Mobile responsiveness */
 @media (max-width: 768px) {
+  :root {
+    --circle-station: 30px;
+    --circle-line: 28px;
+    --font-header: 1.5rem;
+  }
+  
   .nearest-stop {
-    padding: 0.5rem;
+    padding: var(--gap);
   }
   
   .station-header {
-    padding: 1rem;
-  }
-  
-  .station-name {
-    font-size: 1.5rem;
+    padding: var(--gap-large);
   }
   
   .walk-time {
@@ -142,15 +224,6 @@
     padding: 0.75rem;
   }
   
-  .line-circle {
-    width: 28px;
-    height: 28px;
-    font-size: 0.8rem;
-  }
-  
-  .direction-text {
-    font-size: 0.9rem;
-  }
   
   .departure-time {
     font-size: 0.8rem;
@@ -159,30 +232,26 @@
 }
 
 @media (max-width: 480px) {
+  :root {
+    --circle-station: 26px;
+    --circle-line: 26px;
+    --font-header: 1.3rem;
+  }
+  
   .station-header {
     text-align: center;
   }
   
-  .station-name {
-    font-size: 1.3rem;
-  }
-  
   .departure-group {
-    padding: 0.5rem;
+    padding: var(--gap);
   }
   
   .route-header {
-    gap: 0.5rem;
+    gap: var(--gap);
   }
   
   .departure-times {
-    gap: 0.5rem;
-  }
-  
-  .line-circle {
-    width: 26px;
-    height: 26px;
-    font-size: 0.75rem;
+    gap: var(--gap);
   }
   
   .direction-text {
@@ -190,13 +259,19 @@
   }
   
   .departure-time {
-    font-size: 0.75rem;
+    font-size: var(--font-small);
     padding: 0.3rem 0.6rem;
   }
 }
 
 /* Extra small screens */
 @media (max-width: 360px) {
+  :root {
+    --circle-station: 24px;
+    --circle-line: 24px;
+    --font-header: 1.1rem;
+  }
+  
   .nearest-stop {
     padding: 0.25rem;
   }
@@ -206,17 +281,16 @@
   }
   
   .station-name {
-    font-size: 1.1rem;
     flex: 1;
   }
   
   .walk-time {
-    font-size: 0.75rem;
+    font-size: var(--font-small);
     flex-shrink: 0;
   }
   
   .departure-group {
-    padding: 0.5rem;
+    padding: var(--gap);
   }
   
   .route-header {
@@ -238,13 +312,11 @@
   
   .departure-time {
     font-size: 0.7rem;
-    padding: 0.25rem 0.5rem;
+    padding: 0.25rem var(--gap);
     min-width: auto;
   }
   
-  .line-circle {
-    width: 24px;
-    height: 24px;
-    font-size: 0.7rem;
+  .station-routes {
+    gap: 0.25rem;
   }
 }

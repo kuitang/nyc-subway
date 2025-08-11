@@ -96,7 +96,24 @@ function NearestStop({ data }) {
     <div className="nearest-stop">
       <div className="current-time">{formatDateTime()}</div>
       <div className="station-header">
-        <h1 className="station-name">{station.stop_name}</h1>
+        <div className="station-info">
+          <h1 className="station-name">
+            {station.routes && station.routes.length > 0 && (
+              <span className="station-routes">
+                {station.routes.map((route, index) => (
+                  <span
+                    key={index}
+                    className="route-circle station-route"
+                    style={{ backgroundColor: getLineColor(route) }}
+                  >
+                    {route}
+                  </span>
+                ))}
+              </span>
+            )}
+            {station.stop_name}
+          </h1>
+        </div>
         {walking && (
           <span className="walk-time">
             {formatWalkTime()}
@@ -109,7 +126,7 @@ function NearestStop({ data }) {
           <div key={index} className="departure-group">
             <div className="route-header">
               <div 
-                className="line-circle"
+                className="route-circle line-circle"
                 style={{ backgroundColor: getLineColor(group.route_id) }}
               >
                 {group.route_id}

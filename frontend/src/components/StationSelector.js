@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import Select from 'react-select';
+import Select, { components } from 'react-select';
+import { getLineColor } from '../constants/subwayColors';
+import './StationSelector.css';
 
 function StationSelector({ onStationSelect, currentStation }) {
   const [stations, setStations] = useState([]);
@@ -33,6 +35,56 @@ function StationSelector({ onStationSelect, currentStation }) {
       console.error('Error fetching stations:', err);
       setLoading(false);
     }
+  };
+
+  // Custom option component to display route circles
+  const CustomOption = (props) => {
+    const { data } = props;
+    return (
+      <components.Option {...props}>
+        <div className="station-option-content">
+          {data.data.routes && data.data.routes.length > 0 && (
+            <span className="station-routes-container">
+              {data.data.routes.map((route, index) => (
+                <span
+                  key={index}
+                  className="route-circle dropdown-route"
+                  style={{ backgroundColor: getLineColor(route) }}
+                >
+                  {route}
+                </span>
+              ))}
+            </span>
+          )}
+          <span>{props.children}</span>
+        </div>
+      </components.Option>
+    );
+  };
+
+  // Custom single value component to display route circles
+  const CustomSingleValue = (props) => {
+    const { data } = props;
+    return (
+      <components.SingleValue {...props}>
+        <div className="station-option-content">
+          {data.data.routes && data.data.routes.length > 0 && (
+            <span className="station-routes-container">
+              {data.data.routes.map((route, index) => (
+                <span
+                  key={index}
+                  className="route-circle dropdown-route"
+                  style={{ backgroundColor: getLineColor(route) }}
+                >
+                  {route}
+                </span>
+              ))}
+            </span>
+          )}
+          <span>{props.children}</span>
+        </div>
+      </components.SingleValue>
+    );
   };
 
   const customStyles = {
@@ -110,6 +162,10 @@ function StationSelector({ onStationSelect, currentStation }) {
         isClearable
         isSearchable
         styles={customStyles}
+        components={{
+          Option: CustomOption,
+          SingleValue: CustomSingleValue
+        }}
         theme={(theme) => ({
           ...theme,
           colors: {
