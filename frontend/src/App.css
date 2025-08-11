@@ -76,6 +76,15 @@ body, html {
   text-align: center;
 }
 
+/* Yellow subway lines (N, Q, R, W) need black text for readability */
+/* Match both hex and RGB formats that React might render */
+.route-circle[style*="FCCC0A" i],
+.route-circle[style*="rgb(252, 204, 10)"],
+.route-circle[style*="rgb(252,204,10)"] {
+  color: #000 !important;
+  text-shadow: none !important;
+}
+
 /* Responsive breakpoints */
 @media (max-width: 768px) {
   body {
