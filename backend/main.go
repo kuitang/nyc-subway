@@ -287,25 +287,12 @@ func handleByID(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "missing id")
 		return
 	}
-	// Remove N/S suffix if present to get base stop ID
-	baseID := id
-	if len(id) > 1 {
-		lastChar := id[len(id)-1]
-		if lastChar == 'N' || lastChar == 'S' {
-			baseID = id[:len(id)-1]
-		}
-	}
+	// Use baseStopID function to get base stop ID
+	baseID := baseStopID(id)
 	var matched []Station
 	for _, s := range stations {
-		// Match stations with the same base ID (ignoring N/S suffix)
-		stationBaseID := s.StopID
-		if len(s.StopID) > 1 {
-			lastChar := s.StopID[len(s.StopID)-1]
-			if lastChar == 'N' || lastChar == 'S' {
-				stationBaseID = s.StopID[:len(s.StopID)-1]
-			}
-		}
-		if stationBaseID == baseID {
+		// Match stations with the same base ID (ignoring N/S/E/W suffix)
+		if baseStopID(s.StopID) == baseID {
 			matched = append(matched, s)
 		}
 	}
@@ -488,13 +475,7 @@ func departuresForStation(s Station) ([]Departure, error) {
 				}
 
 
-				dir := ""
-				if n := len(stopID); n > 0 {
-					last := stopID[n-1]
-					if last == 'N' || last == 'S' || last == 'E' || last == 'W' {
-						dir = string(last)
-					}
-				}
+				dir := getStopDirection(stopID)
 				etaSec := t - now
 
 				deps = append(deps, Departure{
@@ -826,6 +807,7 @@ func parseLatLon(r *http.Request) (float64, float64, error) {
 	return lat, lon, nil
 }
 
+// baseStopID returns the base stop ID without directional suffix (N/S/E/W)
 func baseStopID(id string) string {
 	if id == "" {
 		return id
@@ -835,6 +817,18 @@ func baseStopID(id string) string {
 		return id[:len(id)-1]
 	}
 	return id
+}
+
+// getStopDirection returns the directional suffix (N/S/E/W) from a stop ID, or empty string if none
+func getStopDirection(id string) string {
+	if id == "" || len(id) < 2 {
+		return ""
+	}
+	last := id[len(id)-1]
+	if last == 'N' || last == 'S' || last == 'E' || last == 'W' {
+		return string(last)
+	}
+	return ""
 }
 
 func parseCSVHeaders(r *csv.Reader, needed []string, source string) (map[string]int, error) {
