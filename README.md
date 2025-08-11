@@ -92,6 +92,10 @@ npm test
 
 ## Deployment to Fly.io
 
+✅ **Deployment Status**: Apps are live!
+- Backend: https://nyc-subway-backend.fly.dev
+- Frontend: https://nyc-subway-frontend.fly.dev
+
 ### Initial Setup (One-time)
 
 1. **Install Fly CLI locally:**
