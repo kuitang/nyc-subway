@@ -592,3 +592,215 @@ func TestParseCSVHeaders(t *testing.T) {
 		}
 	})
 }
+
+// Test getFeedsForStation function
+func TestGetFeedsForStation(t *testing.T) {
+	tests := []struct {
+		name          string
+		station       Station
+		expectedFeeds int
+		expectedURLs  []string
+	}{
+		{
+			name: "Station with N and W routes",
+			station: Station{
+				StopID: "R01",
+				Name:   "Astoria-Ditmars Blvd",
+				Routes: []string{"N", "W"},
+			},
+			expectedFeeds: 1,
+			expectedURLs:  []string{"https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-nqrw"},
+		},
+		{
+			name: "Station with routes from multiple feeds",
+			station: Station{
+				StopID: "635",
+				Name:   "Times Sq-42 St",
+				Routes: []string{"N", "Q", "R", "W", "1", "2", "3", "7"},
+			},
+			expectedFeeds: 2,
+			expectedURLs: []string{
+				"https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs",
+				"https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-nqrw",
+			},
+		},
+		{
+			name: "Station with A, C, E routes",
+			station: Station{
+				StopID: "A32",
+				Name:   "Penn Station",
+				Routes: []string{"A", "C", "E"},
+			},
+			expectedFeeds: 1,
+			expectedURLs:  []string{"https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-ace"},
+		},
+		{
+			name: "Station with L train only",
+			station: Station{
+				StopID: "L01",
+				Name:   "8 Av",
+				Routes: []string{"L"},
+			},
+			expectedFeeds: 1,
+			expectedURLs:  []string{"https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-l"},
+		},
+		{
+			name: "Station with S (shuttle)",
+			station: Station{
+				StopID: "S01",
+				Name:   "Franklin Av",
+				Routes: []string{"S"},
+			},
+			expectedFeeds: 2, // Both base and ACE feeds for shuttles
+		},
+		{
+			name: "Station with no route info",
+			station: Station{
+				StopID: "TEST",
+				Name:   "Test Station",
+				Routes: []string{},
+			},
+			expectedFeeds: len(feedURLs), // Should return all feeds
+		},
+		{
+			name: "Station with express variant",
+			station: Station{
+				StopID: "601",
+				Name:   "Pelham Bay Park",
+				Routes: []string{"6", "6X"},
+			},
+			expectedFeeds: 1,
+			expectedURLs:  []string{"https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs"},
+		},
+	}
+	
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			feeds := getFeedsForStation(tt.station)
+			
+			if len(feeds) != tt.expectedFeeds {
+				t.Errorf("expected %d feeds, got %d", tt.expectedFeeds, len(feeds))
+			}
+			
+			if len(tt.expectedURLs) > 0 {
+				// Check that all expected URLs are present
+				feedSet := make(map[string]bool)
+				for _, url := range feeds {
+					feedSet[url] = true
+				}
+				
+				for _, expectedURL := range tt.expectedURLs {
+					if !feedSet[expectedURL] {
+						t.Errorf("expected feed URL %s not found", expectedURL)
+					}
+				}
+			}
+		})
+	}
+}
+
+// Test loadRouteMapping with mock CSV data
+func TestLoadRouteMapping(t *testing.T) {
+	// Save original stations
+	originalStations := stations
+	defer func() { stations = originalStations }()
+	
+	// Create test stations
+	stations = []Station{
+		{StopID: "R01", Name: "Astoria-Ditmars Blvd", Lat: 40.775036, Lon: -73.912034},
+		{StopID: "635", Name: "Times Sq-42 St", Lat: 40.754672, Lon: -73.986754},
+		{StopID: "A32", Name: "Penn Station", Lat: 40.750373, Lon: -73.991057},
+	}
+	
+	// Create a test server with mock CSV data
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		csv := `Station ID,Complex ID,GTFS Stop ID,Division,Line,Stop Name,Borough,Daytime Routes,Structure
+R01,1,R01,BMT,Astoria,Astoria-Ditmars Blvd,Q,N W,Elevated
+635,611,635,IRT,42 St,Times Sq-42 St,M,N Q R W 1 2 3 7,Subway
+A32,614,A32,IND,8 Av,Penn Station,M,A C E,Subway`
+		w.Write([]byte(csv))
+	}))
+	defer server.Close()
+	
+	// Save original URL and replace with test server
+	originalURL := mtaStationsCSV
+	mtaStationsCSV = server.URL
+	defer func() { mtaStationsCSV = originalURL }()
+	
+	// Load route mappings
+	err := loadRouteMapping(context.Background())
+	if err != nil {
+		t.Fatalf("loadRouteMapping failed: %v", err)
+	}
+	
+	// Check that routes were loaded correctly
+	tests := []struct {
+		stopID        string
+		expectedRoutes []string
+	}{
+		{"R01", []string{"N", "W"}},
+		{"635", []string{"N", "Q", "R", "W", "1", "2", "3", "7"}},
+		{"A32", []string{"A", "C", "E"}},
+	}
+	
+	for _, tt := range tests {
+		var found *Station
+		for i := range stations {
+			if stations[i].StopID == tt.stopID {
+				found = &stations[i]
+				break
+			}
+		}
+		
+		if found == nil {
+			t.Errorf("station %s not found", tt.stopID)
+			continue
+		}
+		
+		if len(found.Routes) != len(tt.expectedRoutes) {
+			t.Errorf("station %s: expected %d routes, got %d", tt.stopID, len(tt.expectedRoutes), len(found.Routes))
+			continue
+		}
+		
+		// Check each route
+		routeSet := make(map[string]bool)
+		for _, r := range found.Routes {
+			routeSet[r] = true
+		}
+		
+		for _, expectedRoute := range tt.expectedRoutes {
+			if !routeSet[expectedRoute] {
+				t.Errorf("station %s: expected route %s not found", tt.stopID, expectedRoute)
+			}
+		}
+	}
+}
+
+// Test that route-to-feed mapping is comprehensive
+func TestRouteToFeedMapping(t *testing.T) {
+	// All known NYC subway routes
+	allRoutes := []string{
+		"1", "2", "3", "4", "5", "6", "7",
+		"A", "B", "C", "D", "E", "F", "G",
+		"J", "L", "M", "N", "Q", "R", "W", "Z",
+		"GS", "FS", "H", "SI", "SIR",
+	}
+	
+	for _, route := range allRoutes {
+		if _, ok := routeToFeed[route]; !ok {
+			t.Errorf("route %s not found in routeToFeed mapping", route)
+		}
+	}
+	
+	// Check that all mapped feeds are valid URLs
+	validFeeds := make(map[string]bool)
+	for _, url := range feedURLs {
+		validFeeds[url] = true
+	}
+	
+	for route, feedURL := range routeToFeed {
+		if !validFeeds[feedURL] {
+			t.Errorf("route %s maps to invalid feed URL: %s", route, feedURL)
+		}
+	}
+}
