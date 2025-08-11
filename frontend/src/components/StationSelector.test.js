@@ -536,6 +536,250 @@ describe('StationSelector Component', () => {
     expect(mockOnStationSelect).toHaveBeenCalledWith(complexStation);
   });
 
+  test('should handle stations with duplicate names correctly', async () => {
+    const mockOnStationSelect = jest.fn();
+    
+    // Mock stations with duplicate names but different IDs
+    const duplicateNameStations = [
+      {
+        gtfs_stop_id: "A15",
+        stop_name: "168 St",
+        lat: 40.840719,
+        lon: -73.939561,
+        routes: ["A", "C", "1"]
+      },
+      {
+        gtfs_stop_id: "601",
+        stop_name: "168 St",
+        lat: 40.840556,
+        lon: -73.940133,
+        routes: ["1"]
+      },
+      {
+        gtfs_stop_id: "250",
+        stop_name: "Grand St",
+        lat: 40.718267,
+        lon: -73.993753,
+        routes: ["B", "D"]
+      },
+      {
+        gtfs_stop_id: "L02",
+        stop_name: "Grand St",
+        lat: 40.711977,
+        lon: -73.940950,
+        routes: ["L"]
+      }
+    ];
+    
+    fetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(duplicateNameStations)
+    });
+    
+    const { container } = render(
+      <StationSelector 
+        onStationSelect={mockOnStationSelect}
+        currentStation={null}
+      />
+    );
+
+    // Wait for stations to load
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalled();
+    });
+
+    // Open dropdown
+    const selector = screen.getByText('Select station...');
+    fireEvent.mouseDown(selector);
+
+    // Should see both "168 St" options
+    await waitFor(() => {
+      const options168 = screen.getAllByText('168 St');
+      expect(options168).toHaveLength(2);
+      const optionsGrand = screen.getAllByText('Grand St');
+      expect(optionsGrand).toHaveLength(2);
+    });
+
+    // Click on the first "168 St" (A/C/1 routes)
+    const options168 = screen.getAllByText('168 St');
+    fireEvent.click(options168[0]);
+
+    // Should call with the correct station object (A15)
+    expect(mockOnStationSelect).toHaveBeenCalledWith({
+      gtfs_stop_id: "A15",
+      stop_name: "168 St",
+      lat: 40.840719,
+      lon: -73.939561,
+      routes: ["A", "C", "1"]
+    });
+    
+    mockOnStationSelect.mockClear();
+
+    // Open dropdown again
+    fireEvent.mouseDown(container.querySelector('.station-select__control'));
+    
+    // Click on the second "168 St" (1 route only)
+    await waitFor(() => {
+      const newOptions168 = screen.getAllByText('168 St');
+      expect(newOptions168).toHaveLength(2);
+    });
+    
+    const newOptions168 = screen.getAllByText('168 St');
+    fireEvent.click(newOptions168[1]);
+
+    // Should call with the correct station object (601)
+    expect(mockOnStationSelect).toHaveBeenCalledWith({
+      gtfs_stop_id: "601",
+      stop_name: "168 St",
+      lat: 40.840556,
+      lon: -73.940133,
+      routes: ["1"]
+    });
+  });
+
+  test('should correctly display selected station when multiple stations have same name', async () => {
+    const mockOnStationSelect = jest.fn();
+    
+    // Mock stations with duplicate names
+    const duplicateNameStations = [
+      {
+        gtfs_stop_id: "A15",
+        stop_name: "168 St",
+        lat: 40.840719,
+        lon: -73.939561,
+        routes: ["A", "C", "1"]
+      },
+      {
+        gtfs_stop_id: "601",
+        stop_name: "168 St",
+        lat: 40.840556,
+        lon: -73.940133,
+        routes: ["1"]
+      }
+    ];
+    
+    fetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(duplicateNameStations)
+    });
+    
+    // First render with no selection
+    const { rerender } = render(
+      <StationSelector 
+        onStationSelect={mockOnStationSelect}
+        currentStation={null}
+      />
+    );
+
+    // Wait for stations to load
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalled();
+    });
+
+    // Now rerender with first "168 St" selected
+    rerender(
+      <StationSelector 
+        onStationSelect={mockOnStationSelect}
+        currentStation={duplicateNameStations[0]}
+      />
+    );
+
+    // Should display "168 St" in the selector
+    await waitFor(() => {
+      // The selected value should show
+      const singleValue = document.querySelector('.station-select__single-value');
+      expect(singleValue).toBeInTheDocument();
+      expect(singleValue.textContent).toContain('168 St');
+    });
+
+    // Should show the correct routes for the selected station (A, C, 1)
+    const routeCircles = document.querySelectorAll('.station-select__single-value .route-circle');
+    const routeTexts = Array.from(routeCircles).map(el => el.textContent);
+    expect(routeTexts).toEqual(["A", "C", "1"]);
+
+    // Now rerender with second "168 St" selected
+    rerender(
+      <StationSelector 
+        onStationSelect={mockOnStationSelect}
+        currentStation={duplicateNameStations[1]}
+      />
+    );
+
+    // Should still display "168 St" but with different routes
+    await waitFor(() => {
+      const singleValue = document.querySelector('.station-select__single-value');
+      expect(singleValue).toBeInTheDocument();
+      expect(singleValue.textContent).toContain('168 St');
+    });
+
+    // Should show the correct routes for the second station (just 1)
+    const newRouteCircles = document.querySelectorAll('.station-select__single-value .route-circle');
+    const newRouteTexts = Array.from(newRouteCircles).map(el => el.textContent);
+    expect(newRouteTexts).toEqual(["1"]);
+  });
+
+  test('should highlight only the selected station in dropdown when stations have duplicate names', async () => {
+    const mockOnStationSelect = jest.fn();
+    
+    // Mock stations with duplicate names
+    const duplicateNameStations = [
+      {
+        gtfs_stop_id: "A15",
+        stop_name: "168 St",
+        lat: 40.840719,
+        lon: -73.939561,
+        routes: ["A", "C", "1"]
+      },
+      {
+        gtfs_stop_id: "601",
+        stop_name: "168 St",
+        lat: 40.840556,
+        lon: -73.940133,
+        routes: ["1"]
+      }
+    ];
+    
+    fetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(duplicateNameStations)
+    });
+    
+    const { container } = render(
+      <StationSelector 
+        onStationSelect={mockOnStationSelect}
+        currentStation={duplicateNameStations[0]} // First "168 St" is selected
+      />
+    );
+
+    // Wait for stations to load
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalled();
+    });
+
+    // Open dropdown
+    fireEvent.mouseDown(container.querySelector('.station-select__control'));
+
+    // Wait for dropdown to open
+    await waitFor(() => {
+      const options = container.querySelectorAll('.station-select__option');
+      expect(options.length).toBeGreaterThan(0);
+    });
+
+    // Find all options and check which ones are selected
+    const options = container.querySelectorAll('.station-select__option');
+    const selectedOptions = Array.from(options).filter(option => 
+      option.classList.contains('station-select__option--is-selected')
+    );
+
+    // Only one option should be selected
+    expect(selectedOptions).toHaveLength(1);
+    
+    // The selected option should have the correct routes (A, C, 1)
+    const selectedRoutes = selectedOptions[0].querySelectorAll('.route-circle');
+    const selectedRouteTexts = Array.from(selectedRoutes).map(el => el.textContent);
+    expect(selectedRouteTexts).toEqual(["A", "C", "1"]);
+  });
+
   test('should have minimum 16px font-size to prevent mobile Safari zoom', async () => {
     const mockOnStationSelect = jest.fn();
     

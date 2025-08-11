@@ -21,9 +21,10 @@ function StationSelector({ onStationSelect, currentStation }) {
       const data = await response.json();
       
       // Transform and sort stations for react-select
+      // Use gtfs_stop_id as value to handle duplicate station names
       const options = data
         .map(station => ({
-          value: station.stop_name,
+          value: station.gtfs_stop_id,
           label: station.stop_name,
           data: station
         }))
@@ -96,7 +97,7 @@ function StationSelector({ onStationSelect, currentStation }) {
   };
 
   const currentValue = currentStation 
-    ? stations.find(s => s.value === currentStation.stop_name)
+    ? stations.find(s => s.value === currentStation.gtfs_stop_id)
     : null;
 
   return (
