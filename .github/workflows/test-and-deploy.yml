@@ -1,0 +1,127 @@
+name: Test and Deploy
+
+on:
+  push:
+    branches: [ main, master ]  # Run tests + deploy on push to main/master
+  pull_request:
+    branches: [ main, master ]  # Run tests only on PRs to main/master
+  workflow_dispatch:            # Allow manual trigger
+
+jobs:
+  # ==================================================================
+  # TEST JOBS - Always run in parallel for both PRs and pushes
+  # ==================================================================
+  backend-tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.19'
+    
+    - name: Install dependencies
+      run: |
+        cd backend
+        go mod download
+    
+    - name: Run backend tests
+      run: |
+        cd backend
+        go test -v -cover ./...
+    
+    - name: Generate coverage report
+      run: |
+        cd backend
+        go test -coverprofile=coverage.out ./...
+        go tool cover -func=coverage.out
+
+  frontend-tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+    
+    - name: Install dependencies
+      run: |
+        cd frontend
+        npm ci
+    
+    - name: Run frontend tests
+      run: |
+        cd frontend
+        npm test -- --watchAll=false --coverage
+    
+    - name: Run build
+      run: |
+        cd frontend
+        npm run build
+
+  api-tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.19'
+    
+    - name: Start backend server
+      run: |
+        cd backend
+        go run main.go &
+        sleep 5  # Wait for server to start
+    
+    - name: Run API tests
+      run: |
+        chmod +x tests/test_api.sh
+        ./tests/test_api.sh
+
+  # ==================================================================
+  # DEPLOY JOBS - Only run on push to main/master (not on PRs)
+  # Both deploy jobs run in parallel after all tests pass
+  # ==================================================================
+  deploy-backend:
+    name: Deploy Backend to Fly.io
+    runs-on: ubuntu-latest
+    # Only deploy on push to main/master, not on PRs
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    needs: [backend-tests, frontend-tests, api-tests]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      
+      - name: Deploy Backend to Fly.io
+        run: flyctl deploy --remote-only
+        working-directory: ./backend
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+  deploy-frontend:
+    name: Deploy Frontend to Fly.io
+    runs-on: ubuntu-latest
+    # Only deploy on push to main/master, not on PRs
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    needs: [backend-tests, frontend-tests, api-tests]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      
+      - name: Deploy Frontend to Fly.io
+        run: flyctl deploy --remote-only
+        working-directory: ./frontend
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

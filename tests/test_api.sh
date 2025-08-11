@@ -36,12 +36,17 @@ echo "$response" | jq '{
 # Verify the 2 per route/direction limit
 echo
 echo "Verifying departure limits (max 2 per route+direction):"
-echo "$response" | jq '.departures | group_by("\(.route_id)_\(.direction)") | map({
+violations=$(echo "$response" | jq '.departures | group_by("\(.route_id)_\(.direction)") | map({
   route_direction: "\(.[0].route_id)_\(.[0].direction)",
   count: length
-}) | .[] | select(.count > 2)'
-if [ $? -eq 0 ]; then
+}) | .[] | select(.count > 2)')
+
+if [ -z "$violations" ]; then
   echo "✓ All route+direction combinations have ≤ 2 departures"
+else
+  echo "✗ FAILED: Found route+direction combinations with > 2 departures:"
+  echo "$violations"
+  exit 1
 fi
 echo
 
@@ -58,15 +63,40 @@ echo "$response" | jq '{
     times: map(.eta_minutes)
   }))
 }'
+
+# Check departure limit for this station
+violations=$(echo "$response" | jq '.departures | group_by("\(.route_id)_\(.direction)") | map({
+  route_direction: "\(.[0].route_id)_\(.[0].direction)",
+  count: length
+}) | .[] | select(.count > 2)')
+
+if [ -n "$violations" ]; then
+  echo "✗ FAILED: Station ID 127 has route+direction combinations with > 2 departures:"
+  echo "$violations"
+  exit 1
+fi
 echo
 
 echo "4) Testing /api/departures/by-id with another station (14 St-Union Sq, ID: 635):"
 echo "---------------------------------------------------------------------------------"
-curl -s "$BASE_URL/api/departures/by-id?id=635" | jq '{
+response635=$(curl -s "$BASE_URL/api/departures/by-id?id=635")
+echo "$response635" | jq '{
   station: .station.stop_name,
   station_id: .station.gtfs_stop_id,
   total_departures: (.departures | length)
 }'
+
+# Check departure limit for this station
+violations635=$(echo "$response635" | jq '.departures | group_by("\(.route_id)_\(.direction)") | map({
+  route_direction: "\(.[0].route_id)_\(.[0].direction)",
+  count: length
+}) | .[] | select(.count > 2)')
+
+if [ -n "$violations635" ]; then
+  echo "✗ FAILED: Station ID 635 has route+direction combinations with > 2 departures:"
+  echo "$violations635"
+  exit 1
+fi
 echo
 
 echo "5) Testing error cases:"
