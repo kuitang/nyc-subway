@@ -503,18 +503,28 @@ func departuresForStation(s Station) ([]Departure, error) {
 			}
 
 			// Find the last stop in this trip for LastStop field
+			var lastStopID string
+			stopUpdates := tu.GetStopTimeUpdate()
+			if len(stopUpdates) > 0 {
+				// Get the last stop by finding the one with highest sequence
+				var lastUpdate *gtfs_realtime.TripUpdate_StopTimeUpdate
+				for _, stu := range stopUpdates {
+					if lastUpdate == nil || stu.GetStopSequence() > lastUpdate.GetStopSequence() {
+						lastUpdate = stu
+					}
+				}
+				if lastUpdate != nil {
+					lastStopID = lastUpdate.GetStopId()
+				}
+			}
+
+			// Look up station name for last stop (outside the loop for efficiency)
 			var lastStopName string
-			var maxSequence uint32 = 0
-			for _, stu := range tu.GetStopTimeUpdate() {
-				if seq := stu.GetStopSequence(); seq > maxSequence {
-					maxSequence = seq
-					lastStopID := stu.GetStopId()
-					// Look up station name for this stop
-					for _, station := range stations {
-						if station.StopID == lastStopID || baseStopID(station.StopID) == baseStopID(lastStopID) {
-							lastStopName = station.Name
-							break
-						}
+			if lastStopID != "" {
+				for _, station := range stations {
+					if station.StopID == lastStopID || baseStopID(station.StopID) == baseStopID(lastStopID) {
+						lastStopName = station.Name
+						break
 					}
 				}
 			}
@@ -570,11 +580,9 @@ func departuresForStation(s Station) ([]Departure, error) {
 	for i := range deps {
 		headsign := lookupHeadsignWithTiming(deps[i].TripID)
 		if headsign == "" && deps[i].LastStop != "" {
-			// Fallback to using LastStop as headsign when no headsign found
-			deps[i].HeadSign = deps[i].LastStop
-		} else {
-			deps[i].HeadSign = headsign
+			headsign = deps[i].LastStop
 		}
+		deps[i].HeadSign = headsign
 	}
 	
 	log.Printf("departuresForStation produced %d departures (after filtering)", len(deps))
