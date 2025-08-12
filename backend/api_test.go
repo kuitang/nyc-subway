@@ -5,6 +5,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"nyc-subway/gtfs_realtime"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestAPIStopsEndpoint(t *testing.T) {
@@ -310,6 +314,93 @@ func TestFeedOptimizationWithRealStations(t *testing.T) {
 	})
 }
 
-
-
-
+func TestLastStopHeadsignFallback(t *testing.T) {
+	// Initialize test caches
+	initTestCaches()
+	
+	// Mock stations with distinctive last stop name
+	stations = []Station{
+		{StopID: "TEST", Name: "Test Station", Lat: 40.7, Lon: -73.9},
+		{StopID: "TERMINAL", Name: "Distinctive Terminal Station", Lat: 40.8, Lon: -74.0},
+	}
+	
+	// Don't mock trips arrays to ensure no headsign is found
+	trips = []Trip{}
+	supplementedTrips = []Trip{}
+	
+	// Create mock server that returns GTFS-RT data with LastStop
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Create a TripUpdate with stop_sequence values and no headsign in trips
+		feed := &gtfs_realtime.FeedMessage{
+			Header: &gtfs_realtime.FeedHeader{
+				GtfsRealtimeVersion: proto.String("2.0"),
+				Timestamp:           proto.Uint64(uint64(time.Now().Unix())),
+			},
+			Entity: []*gtfs_realtime.FeedEntity{
+				{
+					Id: proto.String("1"),
+					TripUpdate: &gtfs_realtime.TripUpdate{
+						Trip: &gtfs_realtime.TripDescriptor{
+							TripId:  proto.String("test_trip_123"),
+							RouteId: proto.String("6"),
+						},
+						StopTimeUpdate: []*gtfs_realtime.TripUpdate_StopTimeUpdate{
+							{
+								StopId:       proto.String("TEST"),
+								StopSequence: proto.Uint32(1),
+								Departure: &gtfs_realtime.TripUpdate_StopTimeEvent{
+									Time: proto.Int64(time.Now().Unix() + 300), // 5 minutes from now
+								},
+							},
+							{
+								StopId:       proto.String("TERMINAL"),
+								StopSequence: proto.Uint32(10), // Higher sequence = last stop
+								Departure: &gtfs_realtime.TripUpdate_StopTimeEvent{
+									Time: proto.Int64(time.Now().Unix() + 1800), // 30 minutes from now
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		
+		data, _ := proto.Marshal(feed)
+		w.Header().Set("Content-Type", "application/x-protobuf")
+		w.Write(data)
+	}))
+	defer server.Close()
+	
+	// Override feed URLs to use our mock server
+	originalURLs := feedURLs
+	feedURLs = []string{server.URL}
+	defer func() { feedURLs = originalURLs }()
+	
+	// Test departuresForStation
+	station := Station{StopID: "TEST", Name: "Test Station", Lat: 40.7, Lon: -73.9}
+	deps, err := departuresForStation(station)
+	
+	if err != nil {
+		t.Fatalf("departuresForStation failed: %v", err)
+	}
+	
+	if len(deps) == 0 {
+		t.Fatal("Expected at least one departure")
+	}
+	
+	// Verify that LastStop was populated
+	found := false
+	for _, dep := range deps {
+		if dep.LastStop == "Distinctive Terminal Station" {
+			found = true
+			// Verify headsign fallback worked (should use LastStop as HeadSign)
+			if dep.HeadSign != "Distinctive Terminal Station" {
+				t.Errorf("Expected HeadSign to be 'Distinctive Terminal Station', got '%s'", dep.HeadSign)
+			}
+		}
+	}
+	
+	if !found {
+		t.Error("LastStop was not populated with expected terminal station name")
+	}
+}
