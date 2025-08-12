@@ -503,22 +503,19 @@ func departuresForStation(s Station) ([]Departure, error) {
 			}
 
 			// Find the last stop for this trip (highest stop_sequence)
+			lastStopID := ""
 			lastStopName := ""
-			maxSequence := uint32(0)
 			for _, stu := range tu.GetStopTimeUpdate() {
-				if seq := stu.GetStopSequence(); seq > maxSequence {
-					maxSequence = seq
-					lastStopID := stu.GetStopId()
-					// Look up station name for this stop ID
-					for _, station := range stations {
-						if station.StopID == lastStopID {
-							lastStopName = station.Name
-							break
-						}
-					}
+				lastStopID = stu.GetStopId()
+			}
+			baseLastStopID := baseStopID(lastStopID)
+			for _, s := range stations {
+				// Match stations with the same base ID (ignoring N/S/E/W suffix)
+				if baseStopID(s.StopID) == baseLastStopID {
+					lastStopName = s.Name
 				}
 			}
-
+			// Look up station name for this stop ID
 			// IMPORTANT: translate and append within the same loop that iterates stop time updates.
 			for _, stu := range tu.GetStopTimeUpdate() {
 				stopID := stu.GetStopId()
@@ -569,7 +566,7 @@ func departuresForStation(s Station) ([]Departure, error) {
 	// Fill in headsigns for the filtered departures
 	for i := range deps {
 		deps[i].HeadSign = lookupHeadsignWithTiming(deps[i].TripID)
-		if deps[i].HeadSign == "" && deps[i].LastStop != "" {
+		if deps[i].HeadSign == "" {
 			deps[i].HeadSign = deps[i].LastStop
 		}
 	}
@@ -1024,7 +1021,7 @@ func loadSupplementedTrips(ctx context.Context, zipURL string) ([]Trip, error) {
 	r.FieldsPerRecord = -1
 
 	need := []string{"route_id", "trip_id", "service_id", "trip_headsign", "direction_id"}
-	idx, err := parseCSVHeaders(r, need, "supplemented-trips")
+	idx, err := parseCSVHeaders(r, need, "trips")
 	if err != nil {
 		return nil, err
 	}
