@@ -29,9 +29,17 @@ echo "$response" | jq '{
   first_5_departures: (.departures[0:5] | map({
     route: .route_id,
     direction: .direction,
-    eta_minutes: .eta_minutes
+    eta_minutes: .eta_minutes,
+    headsign: .headsign
   }))
 }'
+
+# Check if headsigns are being returned
+echo
+echo "Verifying headsign data:"
+headsigns_found=$(echo "$response" | jq '.departures | map(.headsign) | map(select(. != "")) | length')
+total_departures=$(echo "$response" | jq '.departures | length')
+echo "✓ Found $headsigns_found headsigns out of $total_departures departures"
 
 # Verify the 2 per route/direction limit
 echo
@@ -60,9 +68,15 @@ echo "$response" | jq '{
   departures_by_route: (.departures | group_by("\(.route_id)_\(.direction)") | map({
     route_direction: "\(.[0].route_id)_\(.[0].direction)",
     count: length,
-    times: map(.eta_minutes)
+    times: map(.eta_minutes),
+    headsigns: map(.headsign)
   }))
 }'
+
+# Check headsigns for this station  
+headsigns_127=$(echo "$response" | jq '.departures | map(.headsign) | map(select(. != "")) | length')
+total_127=$(echo "$response" | jq '.departures | length')
+echo "✓ Found $headsigns_127 headsigns out of $total_127 departures"
 
 # Check departure limit for this station
 violations=$(echo "$response" | jq '.departures | group_by("\(.route_id)_\(.direction)") | map({

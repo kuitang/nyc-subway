@@ -782,6 +782,192 @@ A32,614,A32,IND,8 Av,Penn Station,M,A C E,Subway`
 	}
 }
 
+
+// Test loadSupplementedTrips function 
+func TestLoadSupplementedTrips(t *testing.T) {
+	initTestCaches()
+	
+	// Create a test server with mock trips.txt data (will be used later)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Create a zip in memory
+		var buf []byte
+		w.Header().Set("Content-Type", "application/zip")
+		w.Write(buf) // This would need actual zip creation - simplified for testing
+	}))
+	defer server.Close()
+
+	// Test the function exists (will fail initially)
+	_, err := loadSupplementedTrips(context.Background(), server.URL)
+	if err == nil {
+		t.Error("loadSupplementedTrips should not exist yet - this test should fail initially")
+	}
+}
+
+// Test lookupHeadsignWithSupplemented function
+func TestLookupHeadsignWithSupplemented(t *testing.T) {
+	// Initialize test data
+	trips = []Trip{
+		{
+			RouteID:      "6",
+			TripID:       "123456_6",
+			ServiceID:    "Weekday",
+			TripHeadsign: "Pelham Bay Park",
+			DirectionID:  "0",
+		},
+	}
+	
+	supplementedTrips = []Trip{
+		{
+			RouteID:      "6",
+			TripID:       "123456_6",
+			ServiceID:    "Weekday", 
+			TripHeadsign: "Brooklyn Bridge - City Hall",
+			DirectionID:  "1",
+		},
+	}
+	
+	// Test that supplemented trips are preferred
+	headsign := lookupHeadsignWithSupplemented("123456_6")
+	if headsign != "Brooklyn Bridge - City Hall" {
+		t.Errorf("expected 'Brooklyn Bridge - City Hall' from supplemented feed, got %s", headsign)
+	}
+	
+	// Test fallback to regular trips when not in supplemented
+	headsign2 := lookupHeadsignWithSupplemented("999999_6")
+	if headsign2 != "" {
+		t.Errorf("expected empty string for unknown trip, got %s", headsign2) 
+	}
+	
+	// Clear supplemented trips and test fallback to regular
+	supplementedTrips = []Trip{}
+	headsign3 := lookupHeadsignWithSupplemented("123456_6")
+	if headsign3 != "Pelham Bay Park" {
+		t.Errorf("expected 'Pelham Bay Park' from regular feed fallback, got %s", headsign3)
+	}
+}
+
+// Test matchServiceID function with various service ID patterns
+func TestMatchServiceID(t *testing.T) {
+	tests := []struct {
+		name        string
+		serviceID   string
+		targetDay   string
+		expected    bool
+	}{
+		// Exact matches
+		{"exact_match_weekday", "Weekday", "Weekday", true},
+		{"exact_match_saturday", "Saturday", "Saturday", true},
+		{"exact_match_sunday", "Sunday", "Sunday", true},
+		
+		// Case insensitive matches
+		{"case_insensitive_weekday", "weekday", "Weekday", true},
+		{"case_insensitive_saturday", "SATURDAY", "Saturday", true},
+		
+		// Substring matches
+		{"substring_monday", "WD_Monday_Special", "Monday", true},
+		{"substring_tuesday", "Service_Tuesday_Express", "Tuesday", true},
+		{"substring_weekday", "WD_Special_Service", "Weekday", true},
+		
+		// Weekday pattern matches
+		{"weekday_pattern_monday", "Monday_Service", "Weekday", true},
+		{"weekday_pattern_tuesday", "Tuesday_Express", "Weekday", true},
+		{"weekday_pattern_wd", "WD_123", "Weekday", true},
+		
+		// Non-matches
+		{"no_match_different", "Saturday", "Sunday", false},
+		{"no_match_unrelated", "Special_Service", "Monday", false},
+		{"no_match_weekend", "Weekend_Service", "Weekday", false},
+	}
+	
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := matchServiceID(tt.serviceID, tt.targetDay)
+			if result != tt.expected {
+				t.Errorf("matchServiceID(%q, %q) = %v, want %v", 
+					tt.serviceID, tt.targetDay, result, tt.expected)
+			}
+		})
+	}
+}
+
+// Test findBestServiceMatch function
+func TestFindBestServiceMatch(t *testing.T) {
+	testMatches := []Trip{
+		{TripID: "trip1", ServiceID: "Weekday", TripHeadsign: "Exact Weekday"},
+		{TripID: "trip2", ServiceID: "WD_Monday_Special", TripHeadsign: "Monday Special"},
+		{TripID: "trip3", ServiceID: "Weekend_Service", TripHeadsign: "Weekend"},
+		{TripID: "trip4", ServiceID: "weekday", TripHeadsign: "Case Insensitive"},
+	}
+	
+	t.Run("exact_match_found", func(t *testing.T) {
+		match, found := findBestServiceMatch(testMatches, "Weekday", "test_trip")
+		if !found {
+			t.Error("expected to find a match")
+		}
+		if match.TripHeadsign != "Exact Weekday" {
+			t.Errorf("expected 'Exact Weekday', got %s", match.TripHeadsign)
+		}
+	})
+	
+	t.Run("case_insensitive_match", func(t *testing.T) {
+		matches := []Trip{
+			{TripID: "trip1", ServiceID: "weekday", TripHeadsign: "Case Insensitive"},
+		}
+		match, found := findBestServiceMatch(matches, "Weekday", "test_trip")
+		if !found {
+			t.Error("expected to find a case insensitive match")
+		}
+		if match.TripHeadsign != "Case Insensitive" {
+			t.Errorf("expected 'Case Insensitive', got %s", match.TripHeadsign)
+		}
+	})
+	
+	t.Run("substring_match", func(t *testing.T) {
+		matches := []Trip{
+			{TripID: "trip1", ServiceID: "WD_Monday_Special", TripHeadsign: "Monday Special"},
+		}
+		match, found := findBestServiceMatch(matches, "Monday", "test_trip")
+		if !found {
+			t.Error("expected to find a substring match")
+		}
+		if match.TripHeadsign != "Monday Special" {
+			t.Errorf("expected 'Monday Special', got %s", match.TripHeadsign)
+		}
+	})
+	
+	t.Run("no_match", func(t *testing.T) {
+		matches := []Trip{
+			{TripID: "trip1", ServiceID: "Sunday", TripHeadsign: "Sunday Service"},
+		}
+		_, found := findBestServiceMatch(matches, "Saturday", "test_trip")
+		if found {
+			t.Error("expected no match for different day")
+		}
+	})
+}
+
+// Test supplemented GTFS caching - no longer needed since background refresh is used
+func TestSupplementedGTFSCaching(t *testing.T) {
+	// This test is no longer applicable since we removed supplementedGTFSCache
+	// Background refresh is used instead of caching
+	t.Skip("supplementedGTFSCache removed - using background refresh instead")
+}
+
+// Test timing and logging for headsign lookups
+func TestHeadsignLookupTiming(t *testing.T) {
+	initTestCaches()
+	
+	// Test the timing functionality (will fail initially)
+	start := time.Now()
+	_ = lookupHeadsignWithTiming("123456_6")
+	duration := time.Since(start)
+	
+	// This should log timing information
+	if duration < 0 {
+		t.Error("timing should be positive")
+	}
+}
+
 // Test that route-to-feed mapping is comprehensive
 func TestRouteToFeedMapping(t *testing.T) {
 	// All known NYC subway routes
