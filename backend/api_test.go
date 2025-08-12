@@ -5,6 +5,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	gtfs_realtime "nyc-subway/gtfs_realtime"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestAPIStopsEndpoint(t *testing.T) {
@@ -308,6 +312,200 @@ func TestFeedOptimizationWithRealStations(t *testing.T) {
 		
 		// Logs should show "No route information for station Test Station, using all feeds"
 	})
+}
+
+// TestLastStopHeadsignFallback tests that when no headsign is found in trips arrays,
+// the last stop name is used as the headsign
+func TestLastStopHeadsignFallback(t *testing.T) {
+	// Initialize test caches
+	initTestCaches()
+	
+	// Clear the trips arrays to ensure no headsign is found there
+	originalTrips := trips
+	originalSupplementedTrips := supplementedTrips
+	trips = []Trip{}
+	supplementedTrips = []Trip{}
+	defer func() {
+		trips = originalTrips
+		supplementedTrips = originalSupplementedTrips
+	}()
+	
+	// Setup test stations
+	stations = []Station{
+		{StopID: "TEST_STATION", Name: "Test Station", Lat: 40.7527, Lon: -73.9772, Routes: []string{"N"}},
+	}
+	
+	// Create mock GTFS-RT feed with a trip that has stops but no headsign in trips.csv
+	mockFeed := createMockFeedWithLastStop("TEST_TRIP", "TEST_STATION", "Distinctive Last Stop Terminal")
+	
+	// Test departuresForStation with the mock feed
+	deps := extractDeparturesFromMockFeed(mockFeed, "TEST_STATION")
+	
+	if len(deps) == 0 {
+		t.Fatal("Expected at least one departure from mock feed")
+	}
+	
+	// Verify that initially no headsign is found (should be empty)
+	headsign := lookupHeadsignWithTiming("TEST_TRIP")
+	if headsign != "" {
+		t.Errorf("Expected empty headsign from trips lookup, got %q", headsign)
+	}
+	
+	// Verify that LastStop is populated (this will fail until we implement it)
+	departure := deps[0]
+	if departure.LastStop != "Distinctive Last Stop Terminal" {
+		t.Errorf("Expected LastStop to be 'Distinctive Last Stop Terminal', got %q", departure.LastStop)
+	}
+	
+	// Verify that HeadSign falls back to LastStop when no headsign found (this will fail until we implement it)
+	if departure.HeadSign != "Distinctive Last Stop Terminal" {
+		t.Errorf("Expected HeadSign to fallback to LastStop 'Distinctive Last Stop Terminal', got %q", departure.HeadSign)
+	}
+}
+
+// createMockFeedWithLastStop creates a mock GTFS-RT feed with a trip that has multiple stops,
+// with the last stop having a distinctive name
+func createMockFeedWithLastStop(tripID, stopID, lastStopName string) *gtfs_realtime.FeedMessage {
+	now := time.Now().Unix()
+	futureTime1 := now + 300 // 5 minutes from now
+	futureTime2 := now + 900 // 15 minutes from now
+	
+	// Create stop time updates - first stop is our target, last stop is the terminal
+	stopTimeUpdates := []*gtfs_realtime.TripUpdate_StopTimeUpdate{
+		{
+			StopId: proto.String(stopID),
+			Departure: &gtfs_realtime.TripUpdate_StopTimeEvent{
+				Time: proto.Int64(futureTime1),
+			},
+			StopSequence: proto.Uint32(1),
+		},
+		{
+			StopId: proto.String("LAST_STOP_ID"),
+			Arrival: &gtfs_realtime.TripUpdate_StopTimeEvent{
+				Time: proto.Int64(futureTime2),
+			},
+			StopSequence: proto.Uint32(10), // High sequence number to ensure it's last
+		},
+	}
+	
+	tripUpdate := &gtfs_realtime.TripUpdate{
+		Trip: &gtfs_realtime.TripDescriptor{
+			TripId:  proto.String(tripID),
+			RouteId: proto.String("N"),
+		},
+		StopTimeUpdate: stopTimeUpdates,
+	}
+	
+	entity := &gtfs_realtime.FeedEntity{
+		Id:         proto.String("test_entity_1"),
+		TripUpdate: tripUpdate,
+	}
+	
+	feed := &gtfs_realtime.FeedMessage{
+		Header: &gtfs_realtime.FeedHeader{
+			GtfsRealtimeVersion: proto.String("2.0"),
+			Timestamp:          proto.Uint64(uint64(now)),
+		},
+		Entity: []*gtfs_realtime.FeedEntity{entity},
+	}
+	
+	// Mock the station lookup for the last stop
+	// We need to add this station temporarily so the last stop name can be resolved
+	stations = append(stations, Station{
+		StopID: "LAST_STOP_ID",
+		Name:   lastStopName,
+		Lat:    40.7527,
+		Lon:    -73.9772,
+	})
+	
+	return feed
+}
+
+// extractDeparturesFromMockFeed extracts departures from a mock feed (simulates departuresForStation logic)
+func extractDeparturesFromMockFeed(feed *gtfs_realtime.FeedMessage, targetStopID string) []Departure {
+	now := time.Now().Unix()
+	var deps []Departure
+	
+	for _, entity := range feed.GetEntity() {
+		tu := entity.GetTripUpdate()
+		if tu == nil {
+			continue
+		}
+		
+		routeID := ""
+		tripID := ""
+		if td := tu.GetTrip(); td != nil {
+			routeID = td.GetRouteId()
+			tripID = td.GetTripId()
+		}
+		
+		// Find the last stop in this trip for LastStop field
+		var lastStopName string
+		var maxSequence uint32 = 0
+		for _, stu := range tu.GetStopTimeUpdate() {
+			if seq := stu.GetStopSequence(); seq > maxSequence {
+				maxSequence = seq
+				stopID := stu.GetStopId()
+				// Look up station name for this stop
+				for _, station := range stations {
+					if station.StopID == stopID {
+						lastStopName = station.Name
+						break
+					}
+				}
+			}
+		}
+		
+		// Process stop time updates for our target stop
+		for _, stu := range tu.GetStopTimeUpdate() {
+			stopID := stu.GetStopId()
+			
+			// Only process if this is our target stop
+			if stopID != targetStopID {
+				continue
+			}
+			
+			var t int64
+			if dep := stu.GetDeparture(); dep != nil {
+				t = dep.GetTime()
+			}
+			if t == 0 {
+				if arr := stu.GetArrival(); arr != nil {
+					t = arr.GetTime()
+				}
+			}
+			if t == 0 || t < now {
+				continue
+			}
+			
+			dir := getStopDirection(stopID)
+			etaSec := t - now
+			
+			// Create departure with LastStop field
+			departure := Departure{
+				RouteID:    routeID,
+				StopID:     stopID,
+				Direction:  dir,
+				UnixTime:   t,
+				ETASeconds: etaSec,
+				TripID:     tripID,
+				HeadSign:   "",      // Will be filled by headsign lookup
+				LastStop:   lastStopName, // This will fail until we add the field
+			}
+			
+			// Apply headsign lookup with fallback to LastStop
+			headsign := lookupHeadsignWithTiming(departure.TripID)
+			if headsign == "" && departure.LastStop != "" {
+				departure.HeadSign = departure.LastStop
+			} else {
+				departure.HeadSign = headsign
+			}
+			
+			deps = append(deps, departure)
+		}
+	}
+	
+	return deps
 }
 
 

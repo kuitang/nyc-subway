@@ -67,6 +67,7 @@ type Departure struct {
 	ETASeconds int64  `json:"eta_seconds"`
 	TripID     string `json:"trip_id,omitempty"`
 	HeadSign   string `json:"headsign,omitempty"`
+	LastStop   string `json:"-"` // Last stop name, not serialized to JSON
 }
 
 type WalkResult struct {
@@ -501,6 +502,23 @@ func departuresForStation(s Station) ([]Departure, error) {
 				tripID = td.GetTripId()
 			}
 
+			// Find the last stop in this trip for LastStop field
+			var lastStopName string
+			var maxSequence uint32 = 0
+			for _, stu := range tu.GetStopTimeUpdate() {
+				if seq := stu.GetStopSequence(); seq > maxSequence {
+					maxSequence = seq
+					lastStopID := stu.GetStopId()
+					// Look up station name for this stop
+					for _, station := range stations {
+						if station.StopID == lastStopID || baseStopID(station.StopID) == baseStopID(lastStopID) {
+							lastStopName = station.Name
+							break
+						}
+					}
+				}
+			}
+
 			// IMPORTANT: translate and append within the same loop that iterates stop time updates.
 			for _, stu := range tu.GetStopTimeUpdate() {
 				stopID := stu.GetStopId()
@@ -537,6 +555,7 @@ func departuresForStation(s Station) ([]Departure, error) {
 					ETASeconds: etaSec,
 					TripID:     tripID,
 					HeadSign:   "",
+					LastStop:   lastStopName,
 				})
 			}
 		}
@@ -549,7 +568,13 @@ func departuresForStation(s Station) ([]Departure, error) {
 	
 	// Fill in headsigns for the filtered departures
 	for i := range deps {
-		deps[i].HeadSign = lookupHeadsignWithTiming(deps[i].TripID)
+		headsign := lookupHeadsignWithTiming(deps[i].TripID)
+		if headsign == "" && deps[i].LastStop != "" {
+			// Fallback to using LastStop as headsign when no headsign found
+			deps[i].HeadSign = deps[i].LastStop
+		} else {
+			deps[i].HeadSign = headsign
+		}
 	}
 	
 	log.Printf("departuresForStation produced %d departures (after filtering)", len(deps))
