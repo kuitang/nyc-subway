@@ -27,9 +27,4 @@ func initTestCaches() {
 		Expiration(30 * time.Second).
 		Build()
 
-	// Supplemented GTFS cache: 30-minute TTL for trips data
-	supplementedGTFSCache = gcache.New(1).
-		LRU().
-		Expiration(30 * time.Minute).
-		Build()
 }

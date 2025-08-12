@@ -91,7 +91,6 @@ var (
 	walkCache       gcache.Cache
 	stopsCache      gcache.Cache
 	transitFeedCache gcache.Cache
-	supplementedGTFSCache gcache.Cache
 	// NYC area bounding box (coarse)
 	minLat, maxLat = 40.3, 41.1
 	minLon, maxLon = -74.5, -73.3
@@ -178,11 +177,6 @@ func main() {
 		Expiration(30 * time.Second).
 		Build()
 	
-	// Initialize supplemented GTFS cache: 30 minute TTL for trips data
-	supplementedGTFSCache = gcache.New(1).
-		LRU().
-		Expiration(30 * time.Minute).
-		Build()
 	
 	if v := os.Getenv("STATIONS_CSV"); v != "" {
 		stationsCSV = v
@@ -968,17 +962,7 @@ func loadSupplementedTrips(ctx context.Context, zipURL string) ([]Trip, error) {
 	start := time.Now()
 	log.Printf("Loading supplemented GTFS trips from %s", zipURL)
 	
-	// Check cache first
-	const cacheKey = "supplemented_trips"
-	if cached, err := supplementedGTFSCache.Get(cacheKey); err == nil {
-		if cachedTrips, ok := cached.([]Trip); ok {
-			log.Printf("Supplemented GTFS trips loaded from cache in %.2f ms", 
-				float64(time.Since(start).Microseconds())/1000.0)
-			return cachedTrips, nil
-		}
-	}
-	
-	log.Printf("Supplemented GTFS cache miss, downloading from network")
+	log.Printf("Downloading supplemented GTFS trips from network")
 	
 	req, _ := http.NewRequestWithContext(ctx, "GET", zipURL, nil)
 	resp, err := httpClient.Do(req)
@@ -1043,20 +1027,88 @@ func loadSupplementedTrips(ctx context.Context, zipURL string) ([]Trip, error) {
 		out = append(out, trip)
 	}
 
-	// Cache the results
-	supplementedGTFSCache.Set(cacheKey, out)
 	
 	log.Printf("Loaded %d supplemented trips in %.2f ms", len(out), 
 		float64(time.Since(start).Microseconds())/1000.0)
 	return out, nil
 }
 
+// matchServiceID performs improved service matching with substring matching for irregular service IDs
+func matchServiceID(serviceID, targetDay string) bool {
+	// First try exact match
+	if serviceID == targetDay {
+		return true
+	}
+	
+	// Try case-insensitive exact match
+	if strings.EqualFold(serviceID, targetDay) {
+		return true
+	}
+	
+	// Try substring match (case-insensitive) for irregular service IDs
+	// that might contain day names in the middle (e.g., "WD_Monday_Special")
+	if strings.Contains(strings.ToLower(serviceID), strings.ToLower(targetDay)) {
+		return true
+	}
+	
+	// Handle common weekday variations
+	if targetDay == "Weekday" {
+		lowerServiceID := strings.ToLower(serviceID)
+		weekdayPatterns := []string{"monday", "tuesday", "wednesday", "thursday", "friday", "weekday", "wd"}
+		for _, pattern := range weekdayPatterns {
+			if strings.Contains(lowerServiceID, pattern) {
+				return true
+			}
+		}
+	}
+	
+	return false
+}
+
+// findBestServiceMatch finds the best matching trip for a given service day
+func findBestServiceMatch(matches []Trip, targetDay string, tripID string) (Trip, bool) {
+	var exactMatches []Trip
+	var substringMatches []Trip
+	
+	// Categorize matches
+	for _, match := range matches {
+		if match.ServiceID == targetDay || strings.EqualFold(match.ServiceID, targetDay) {
+			exactMatches = append(exactMatches, match)
+		} else if matchServiceID(match.ServiceID, targetDay) {
+			substringMatches = append(substringMatches, match)
+		}
+	}
+	
+	// Prefer exact matches
+	if len(exactMatches) == 1 {
+		return exactMatches[0], true
+	}
+	
+	if len(exactMatches) > 1 {
+		log.Printf("Warning: Multiple exact service matches for trip %s on %s: %d matches", 
+			tripID, targetDay, len(exactMatches))
+		return exactMatches[0], true
+	}
+	
+	// Use substring matches if no exact matches
+	if len(substringMatches) == 1 {
+		return substringMatches[0], true
+	}
+	
+	if len(substringMatches) > 1 {
+		log.Printf("Warning: Multiple substring service matches for trip %s on %s: %d matches", 
+			tripID, targetDay, len(substringMatches))
+		return substringMatches[0], true
+	}
+	
+	// No service matches found
+	return Trip{}, false
+}
+
 func lookupHeadsignWithSupplemented(tripID string) string {
 	if tripID == "" {
 		return ""
 	}
-
-	start := time.Now()
 
 	// Get current day of week
 	now := time.Now()
@@ -1081,20 +1133,17 @@ func lookupHeadsignWithSupplemented(tripID string) string {
 		}
 
 		if len(matches) > 0 {
-			// Prefer the one matching today's service
-			for _, match := range matches {
-				if match.ServiceID == service {
-					headsign := match.TripHeadsign
-					log.Printf("Headsign for trip %s found in supplemented feed: %s (%.2f ms)", 
-						tripID, headsign, float64(time.Since(start).Microseconds())/1000.0)
-					return headsign
-				}
+			// Try to find the best service match
+			if bestMatch, found := findBestServiceMatch(matches, service, tripID); found {
+				log.Printf("Headsign for trip %s found in supplemented feed: %s (service: %s)", 
+					tripID, bestMatch.TripHeadsign, bestMatch.ServiceID)
+				return bestMatch.TripHeadsign
 			}
-			// If no service match, return first match
-			headsign := matches[0].TripHeadsign
-			log.Printf("Headsign for trip %s found in supplemented feed (no service match): %s (%.2f ms)", 
-				tripID, headsign, float64(time.Since(start).Microseconds())/1000.0)
-			return headsign
+			
+			// If no service match, return first match but log a warning
+			log.Printf("Warning: No service match for trip %s on %s, using first match (service: %s): %s", 
+				tripID, service, matches[0].ServiceID, matches[0].TripHeadsign)
+			return matches[0].TripHeadsign
 		}
 	}
 
@@ -1108,25 +1157,21 @@ func lookupHeadsignWithSupplemented(tripID string) string {
 		}
 
 		if len(matches) > 0 {
-			// Prefer the one matching today's service
-			for _, match := range matches {
-				if match.ServiceID == service {
-					headsign := match.TripHeadsign
-					log.Printf("Headsign for trip %s found in regular feed: %s (%.2f ms)", 
-						tripID, headsign, float64(time.Since(start).Microseconds())/1000.0)
-					return headsign
-				}
+			// Try to find the best service match
+			if bestMatch, found := findBestServiceMatch(matches, service, tripID); found {
+				log.Printf("Headsign for trip %s found in regular feed: %s (service: %s)", 
+					tripID, bestMatch.TripHeadsign, bestMatch.ServiceID)
+				return bestMatch.TripHeadsign
 			}
-			// If no service match, return first match
-			headsign := matches[0].TripHeadsign
-			log.Printf("Headsign for trip %s found in regular feed (no service match): %s (%.2f ms)", 
-				tripID, headsign, float64(time.Since(start).Microseconds())/1000.0)
-			return headsign
+			
+			// If no service match, return first match but log a warning  
+			log.Printf("Warning: No service match for trip %s on %s, using first match (service: %s): %s", 
+				tripID, service, matches[0].ServiceID, matches[0].TripHeadsign)
+			return matches[0].TripHeadsign
 		}
 	}
 
-	log.Printf("Headsign for trip %s not found (%.2f ms)", tripID, 
-		float64(time.Since(start).Microseconds())/1000.0)
+	log.Printf("Headsign for trip %s not found", tripID)
 	return ""
 }
 

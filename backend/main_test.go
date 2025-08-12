@@ -846,15 +846,111 @@ func TestLookupHeadsignWithSupplemented(t *testing.T) {
 	}
 }
 
-// Test supplemented GTFS caching
-func TestSupplementedGTFSCaching(t *testing.T) {
-	initTestCaches()
-	
-	// Test that cache is used properly
-	// This test will initially fail as the caching mechanism doesn't exist yet
-	if supplementedGTFSCache == nil {
-		t.Error("supplementedGTFSCache should be initialized")
+// Test matchServiceID function with various service ID patterns
+func TestMatchServiceID(t *testing.T) {
+	tests := []struct {
+		name        string
+		serviceID   string
+		targetDay   string
+		expected    bool
+	}{
+		// Exact matches
+		{"exact_match_weekday", "Weekday", "Weekday", true},
+		{"exact_match_saturday", "Saturday", "Saturday", true},
+		{"exact_match_sunday", "Sunday", "Sunday", true},
+		
+		// Case insensitive matches
+		{"case_insensitive_weekday", "weekday", "Weekday", true},
+		{"case_insensitive_saturday", "SATURDAY", "Saturday", true},
+		
+		// Substring matches
+		{"substring_monday", "WD_Monday_Special", "Monday", true},
+		{"substring_tuesday", "Service_Tuesday_Express", "Tuesday", true},
+		{"substring_weekday", "WD_Special_Service", "Weekday", true},
+		
+		// Weekday pattern matches
+		{"weekday_pattern_monday", "Monday_Service", "Weekday", true},
+		{"weekday_pattern_tuesday", "Tuesday_Express", "Weekday", true},
+		{"weekday_pattern_wd", "WD_123", "Weekday", true},
+		
+		// Non-matches
+		{"no_match_different", "Saturday", "Sunday", false},
+		{"no_match_unrelated", "Special_Service", "Monday", false},
+		{"no_match_weekend", "Weekend_Service", "Weekday", false},
 	}
+	
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := matchServiceID(tt.serviceID, tt.targetDay)
+			if result != tt.expected {
+				t.Errorf("matchServiceID(%q, %q) = %v, want %v", 
+					tt.serviceID, tt.targetDay, result, tt.expected)
+			}
+		})
+	}
+}
+
+// Test findBestServiceMatch function
+func TestFindBestServiceMatch(t *testing.T) {
+	testMatches := []Trip{
+		{TripID: "trip1", ServiceID: "Weekday", TripHeadsign: "Exact Weekday"},
+		{TripID: "trip2", ServiceID: "WD_Monday_Special", TripHeadsign: "Monday Special"},
+		{TripID: "trip3", ServiceID: "Weekend_Service", TripHeadsign: "Weekend"},
+		{TripID: "trip4", ServiceID: "weekday", TripHeadsign: "Case Insensitive"},
+	}
+	
+	t.Run("exact_match_found", func(t *testing.T) {
+		match, found := findBestServiceMatch(testMatches, "Weekday", "test_trip")
+		if !found {
+			t.Error("expected to find a match")
+		}
+		if match.TripHeadsign != "Exact Weekday" {
+			t.Errorf("expected 'Exact Weekday', got %s", match.TripHeadsign)
+		}
+	})
+	
+	t.Run("case_insensitive_match", func(t *testing.T) {
+		matches := []Trip{
+			{TripID: "trip1", ServiceID: "weekday", TripHeadsign: "Case Insensitive"},
+		}
+		match, found := findBestServiceMatch(matches, "Weekday", "test_trip")
+		if !found {
+			t.Error("expected to find a case insensitive match")
+		}
+		if match.TripHeadsign != "Case Insensitive" {
+			t.Errorf("expected 'Case Insensitive', got %s", match.TripHeadsign)
+		}
+	})
+	
+	t.Run("substring_match", func(t *testing.T) {
+		matches := []Trip{
+			{TripID: "trip1", ServiceID: "WD_Monday_Special", TripHeadsign: "Monday Special"},
+		}
+		match, found := findBestServiceMatch(matches, "Monday", "test_trip")
+		if !found {
+			t.Error("expected to find a substring match")
+		}
+		if match.TripHeadsign != "Monday Special" {
+			t.Errorf("expected 'Monday Special', got %s", match.TripHeadsign)
+		}
+	})
+	
+	t.Run("no_match", func(t *testing.T) {
+		matches := []Trip{
+			{TripID: "trip1", ServiceID: "Sunday", TripHeadsign: "Sunday Service"},
+		}
+		_, found := findBestServiceMatch(matches, "Saturday", "test_trip")
+		if found {
+			t.Error("expected no match for different day")
+		}
+	})
+}
+
+// Test supplemented GTFS caching - no longer needed since background refresh is used
+func TestSupplementedGTFSCaching(t *testing.T) {
+	// This test is no longer applicable since we removed supplementedGTFSCache
+	// Background refresh is used instead of caching
+	t.Skip("supplementedGTFSCache removed - using background refresh instead")
 }
 
 // Test timing and logging for headsign lookups
