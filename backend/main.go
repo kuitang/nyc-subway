@@ -86,10 +86,12 @@ type Trip struct {
 var (
 	stations   []Station
 	trips           []Trip
+	supplementedTrips []Trip
 	httpClient      = &http.Client{Timeout: 12 * time.Second}
 	walkCache       gcache.Cache
 	stopsCache      gcache.Cache
 	transitFeedCache gcache.Cache
+	supplementedGTFSCache gcache.Cache
 	// NYC area bounding box (coarse)
 	minLat, maxLat = 40.3, 41.1
 	minLon, maxLon = -74.5, -73.3
@@ -150,6 +152,8 @@ var (
 	// MTA Stations.csv with route information
 	mtaStationsCSV = "http://web.mta.info/developers/data/nyct/subway/Stations.csv"
 	gtfsZipURL = "http://web.mta.info/developers/data/nyct/subway/google_transit.zip"
+	// Supplemented GTFS with additional headsign information
+	supplementedGTFSURL = "https://rrgtfsfeeds.s3.amazonaws.com/gtfs_supplemented.zip"
 )
 
 func main() {
@@ -174,6 +178,12 @@ func main() {
 		Expiration(30 * time.Second).
 		Build()
 	
+	// Initialize supplemented GTFS cache: 30 minute TTL for trips data
+	supplementedGTFSCache = gcache.New(1).
+		LRU().
+		Expiration(30 * time.Minute).
+		Build()
+	
 	if v := os.Getenv("STATIONS_CSV"); v != "" {
 		stationsCSV = v
 	}
@@ -189,6 +199,36 @@ func main() {
 	} else {
 		log.Printf("Loaded %d trips", len(trips))
 	}
+
+	// Load supplemented GTFS trips with additional headsigns
+	supplementedURL := supplementedGTFSURL
+	if v := os.Getenv("SUPPLEMENTED_GTFS_URL"); v != "" {
+		supplementedURL = v
+	}
+	if suppTrips, err := loadSupplementedTrips(context.Background(), supplementedURL); err != nil {
+		log.Printf("Warning: failed to load supplemented GTFS trips data: %v", err)
+	} else {
+		supplementedTrips = suppTrips
+		log.Printf("Loaded %d supplemented trips", len(supplementedTrips))
+	}
+
+	// Start background refresh for supplemented GTFS data (every 30 minutes)
+	go func() {
+		ticker := time.NewTicker(30 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				log.Printf("Refreshing supplemented GTFS data...")
+				if suppTrips, err := loadSupplementedTrips(context.Background(), supplementedURL); err != nil {
+					log.Printf("Warning: failed to refresh supplemented GTFS trips data: %v", err)
+				} else {
+					supplementedTrips = suppTrips
+					log.Printf("Refreshed %d supplemented trips", len(supplementedTrips))
+				}
+			}
+		}
+	}()
 
 
 	mux := http.NewServeMux()
@@ -515,7 +555,7 @@ func departuresForStation(s Station) ([]Departure, error) {
 	
 	// Fill in headsigns for the filtered departures
 	for i := range deps {
-		deps[i].HeadSign = lookupHeadsign(deps[i].TripID)
+		deps[i].HeadSign = lookupHeadsignWithTiming(deps[i].TripID)
 	}
 	
 	log.Printf("departuresForStation produced %d departures (after filtering)", len(deps))
@@ -920,4 +960,181 @@ func lookupHeadsign(tripID string) string {
 
 	// If no service match, return first match
 	return matches[0].TripHeadsign
+}
+
+// Stub functions for supplemented GTFS functionality - to be implemented
+
+func loadSupplementedTrips(ctx context.Context, zipURL string) ([]Trip, error) {
+	start := time.Now()
+	log.Printf("Loading supplemented GTFS trips from %s", zipURL)
+	
+	// Check cache first
+	const cacheKey = "supplemented_trips"
+	if cached, err := supplementedGTFSCache.Get(cacheKey); err == nil {
+		if cachedTrips, ok := cached.([]Trip); ok {
+			log.Printf("Supplemented GTFS trips loaded from cache in %.2f ms", 
+				float64(time.Since(start).Microseconds())/1000.0)
+			return cachedTrips, nil
+		}
+	}
+	
+	log.Printf("Supplemented GTFS cache miss, downloading from network")
+	
+	req, _ := http.NewRequestWithContext(ctx, "GET", zipURL, nil)
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("download supplemented GTFS zip: %w", err)
+	}
+	defer resp.Body.Close()
+
+	zipData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read supplemented GTFS zip: %w", err)
+	}
+
+	zipReader, err := zip.NewReader(strings.NewReader(string(zipData)), int64(len(zipData)))
+	if err != nil {
+		return nil, fmt.Errorf("open supplemented GTFS zip: %w", err)
+	}
+
+	var tripsFile *zip.File
+	for _, f := range zipReader.File {
+		if f.Name == "trips.txt" {
+			tripsFile = f
+			break
+		}
+	}
+	if tripsFile == nil {
+		return nil, fmt.Errorf("trips.txt not found in supplemented GTFS zip")
+	}
+
+	rc, err := tripsFile.Open()
+	if err != nil {
+		return nil, fmt.Errorf("open trips.txt: %w", err)
+	}
+	defer rc.Close()
+
+	r := csv.NewReader(rc)
+	r.FieldsPerRecord = -1
+
+	need := []string{"route_id", "trip_id", "service_id", "trip_headsign", "direction_id"}
+	idx, err := parseCSVHeaders(r, need, "supplemented-trips")
+	if err != nil {
+		return nil, err
+	}
+
+	var out []Trip
+	for {
+		row, err := r.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read supplemented trips row: %w", err)
+		}
+
+		trip := Trip{
+			RouteID:      row[idx["route_id"]],
+			TripID:       row[idx["trip_id"]],
+			ServiceID:    row[idx["service_id"]],
+			TripHeadsign: row[idx["trip_headsign"]],
+			DirectionID:  row[idx["direction_id"]],
+		}
+		out = append(out, trip)
+	}
+
+	// Cache the results
+	supplementedGTFSCache.Set(cacheKey, out)
+	
+	log.Printf("Loaded %d supplemented trips in %.2f ms", len(out), 
+		float64(time.Since(start).Microseconds())/1000.0)
+	return out, nil
+}
+
+func lookupHeadsignWithSupplemented(tripID string) string {
+	if tripID == "" {
+		return ""
+	}
+
+	start := time.Now()
+
+	// Get current day of week
+	now := time.Now()
+	dayOfWeek := now.Weekday()
+	var service string
+	switch dayOfWeek {
+	case time.Sunday:
+		service = "Sunday"
+	case time.Saturday:
+		service = "Saturday"
+	default:
+		service = "Weekday"
+	}
+
+	// First check supplemented trips (preferred source)
+	if len(supplementedTrips) > 0 {
+		var matches []Trip
+		for _, trip := range supplementedTrips {
+			if strings.Contains(trip.TripID, tripID) {
+				matches = append(matches, trip)
+			}
+		}
+
+		if len(matches) > 0 {
+			// Prefer the one matching today's service
+			for _, match := range matches {
+				if match.ServiceID == service {
+					headsign := match.TripHeadsign
+					log.Printf("Headsign for trip %s found in supplemented feed: %s (%.2f ms)", 
+						tripID, headsign, float64(time.Since(start).Microseconds())/1000.0)
+					return headsign
+				}
+			}
+			// If no service match, return first match
+			headsign := matches[0].TripHeadsign
+			log.Printf("Headsign for trip %s found in supplemented feed (no service match): %s (%.2f ms)", 
+				tripID, headsign, float64(time.Since(start).Microseconds())/1000.0)
+			return headsign
+		}
+	}
+
+	// Fallback to regular trips
+	if len(trips) > 0 {
+		var matches []Trip
+		for _, trip := range trips {
+			if strings.Contains(trip.TripID, tripID) {
+				matches = append(matches, trip)
+			}
+		}
+
+		if len(matches) > 0 {
+			// Prefer the one matching today's service
+			for _, match := range matches {
+				if match.ServiceID == service {
+					headsign := match.TripHeadsign
+					log.Printf("Headsign for trip %s found in regular feed: %s (%.2f ms)", 
+						tripID, headsign, float64(time.Since(start).Microseconds())/1000.0)
+					return headsign
+				}
+			}
+			// If no service match, return first match
+			headsign := matches[0].TripHeadsign
+			log.Printf("Headsign for trip %s found in regular feed (no service match): %s (%.2f ms)", 
+				tripID, headsign, float64(time.Since(start).Microseconds())/1000.0)
+			return headsign
+		}
+	}
+
+	log.Printf("Headsign for trip %s not found (%.2f ms)", tripID, 
+		float64(time.Since(start).Microseconds())/1000.0)
+	return ""
+}
+
+func lookupHeadsignWithTiming(tripID string) string {
+	start := time.Now()
+	headsign := lookupHeadsignWithSupplemented(tripID)
+	duration := time.Since(start)
+	log.Printf("Total headsign lookup time for trip %s: %.2f ms", tripID, 
+		float64(duration.Microseconds())/1000.0)
+	return headsign
 }

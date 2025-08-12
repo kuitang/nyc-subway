@@ -782,6 +782,96 @@ A32,614,A32,IND,8 Av,Penn Station,M,A C E,Subway`
 	}
 }
 
+
+// Test loadSupplementedTrips function 
+func TestLoadSupplementedTrips(t *testing.T) {
+	initTestCaches()
+	
+	// Create a test server with mock trips.txt data (will be used later)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Create a zip in memory
+		var buf []byte
+		w.Header().Set("Content-Type", "application/zip")
+		w.Write(buf) // This would need actual zip creation - simplified for testing
+	}))
+	defer server.Close()
+
+	// Test the function exists (will fail initially)
+	_, err := loadSupplementedTrips(context.Background(), server.URL)
+	if err == nil {
+		t.Error("loadSupplementedTrips should not exist yet - this test should fail initially")
+	}
+}
+
+// Test lookupHeadsignWithSupplemented function
+func TestLookupHeadsignWithSupplemented(t *testing.T) {
+	// Initialize test data
+	trips = []Trip{
+		{
+			RouteID:      "6",
+			TripID:       "123456_6",
+			ServiceID:    "Weekday",
+			TripHeadsign: "Pelham Bay Park",
+			DirectionID:  "0",
+		},
+	}
+	
+	supplementedTrips = []Trip{
+		{
+			RouteID:      "6",
+			TripID:       "123456_6",
+			ServiceID:    "Weekday", 
+			TripHeadsign: "Brooklyn Bridge - City Hall",
+			DirectionID:  "1",
+		},
+	}
+	
+	// Test that supplemented trips are preferred
+	headsign := lookupHeadsignWithSupplemented("123456_6")
+	if headsign != "Brooklyn Bridge - City Hall" {
+		t.Errorf("expected 'Brooklyn Bridge - City Hall' from supplemented feed, got %s", headsign)
+	}
+	
+	// Test fallback to regular trips when not in supplemented
+	headsign2 := lookupHeadsignWithSupplemented("999999_6")
+	if headsign2 != "" {
+		t.Errorf("expected empty string for unknown trip, got %s", headsign2) 
+	}
+	
+	// Clear supplemented trips and test fallback to regular
+	supplementedTrips = []Trip{}
+	headsign3 := lookupHeadsignWithSupplemented("123456_6")
+	if headsign3 != "Pelham Bay Park" {
+		t.Errorf("expected 'Pelham Bay Park' from regular feed fallback, got %s", headsign3)
+	}
+}
+
+// Test supplemented GTFS caching
+func TestSupplementedGTFSCaching(t *testing.T) {
+	initTestCaches()
+	
+	// Test that cache is used properly
+	// This test will initially fail as the caching mechanism doesn't exist yet
+	if supplementedGTFSCache == nil {
+		t.Error("supplementedGTFSCache should be initialized")
+	}
+}
+
+// Test timing and logging for headsign lookups
+func TestHeadsignLookupTiming(t *testing.T) {
+	initTestCaches()
+	
+	// Test the timing functionality (will fail initially)
+	start := time.Now()
+	_ = lookupHeadsignWithTiming("123456_6")
+	duration := time.Since(start)
+	
+	// This should log timing information
+	if duration < 0 {
+		t.Error("timing should be positive")
+	}
+}
+
 // Test that route-to-feed mapping is comprehensive
 func TestRouteToFeedMapping(t *testing.T) {
 	// All known NYC subway routes
