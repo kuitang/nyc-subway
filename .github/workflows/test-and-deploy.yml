@@ -80,8 +80,16 @@ jobs:
     - name: Start backend server
       run: |
         cd backend
-        go run main.go &
-        sleep 5  # Wait for server to start
+        go build -o /tmp/nyc-subway-api .
+        /tmp/nyc-subway-api > /tmp/nyc-subway-api.log 2>&1 &
+        for attempt in $(seq 1 60); do
+          if curl --fail --silent http://localhost:8080/api/stops > /dev/null; then
+            exit 0
+          fi
+          sleep 1
+        done
+        cat /tmp/nyc-subway-api.log
+        exit 1
     
     - name: Run API tests
       run: |
