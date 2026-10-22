@@ -1,7 +1,7 @@
 module nyc-subway
 
-go 1.19
+go 1.26.10
 
-require google.golang.org/protobuf v1.26.0
+require google.golang.org/protobuf v1.36.12
 
 require github.com/bluele/gcache v0.0.2

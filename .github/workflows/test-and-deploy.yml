@@ -20,7 +20,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.19'
+        go-version: '1.26.10'
     
     - name: Install dependencies
       run: |
@@ -47,7 +47,7 @@ jobs:
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '24.22.1'
         cache: 'npm'
         cache-dependency-path: frontend/package-lock.json
     
@@ -75,13 +75,21 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.19'
+        go-version: '1.26.10'
     
     - name: Start backend server
       run: |
         cd backend
-        go run main.go &
-        sleep 5  # Wait for server to start
+        go build -o /tmp/nyc-subway-api .
+        /tmp/nyc-subway-api > /tmp/nyc-subway-api.log 2>&1 &
+        for attempt in $(seq 1 60); do
+          if curl --fail --silent http://localhost:8080/api/stops > /dev/null; then
+            exit 0
+          fi
+          sleep 1
+        done
+        cat /tmp/nyc-subway-api.log
+        exit 1
     
     - name: Run API tests
       run: |
