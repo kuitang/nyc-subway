@@ -4,8 +4,8 @@
 
 ### Generate Protobuf Files
 ```bash
-# Install protoc-gen-go (compatible with Go 1.19)
-GOPATH=/tmp/gopath go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28
+# Install protoc-gen-go (supported Go 1.26.10)
+GOPATH=/tmp/gopath go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12
 
 # Create output directory
 mkdir -p gtfs_realtime
@@ -162,8 +162,8 @@ flyctl deploy
 ### Automatic Deployment via GitHub Actions
 
 The app will automatically deploy when you push to the `main` branch. The GitHub Actions workflow:
-1. Deploys the backend first
-2. Then deploys the frontend (configured to use the backend URL)
+1. Runs backend, frontend, and API integration tests
+2. Deploys backend and frontend in parallel only after all three gates pass
 
 You can also trigger deployment manually from GitHub:
 - Go to Actions tab → Deploy to Fly.io → Run workflow
