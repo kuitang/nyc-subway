@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Common Commands
 
-### Backend (Go 1.19)
+### Backend (Go 1.26.10+)
 ```bash
 # Run backend server (default port 8080)
 go run backend/main.go
@@ -99,5 +99,5 @@ PATH=/tmp/gopath/bin:$PATH protoc --go_out=gtfs_realtime --go_opt=paths=source_r
 - Follow test-driven development: write tests first, verify they fail, then implement
 - Always check current directory when running bash commands
 - Stop after 3+ consecutive command failures
-- Backend requires Go 1.19 compatibility
+- Backend requires the supported Go version pinned in backend/go.mod (1.26.10+)
 - Frontend uses React 18 with react-scripts 5.0.1
