@@ -8,7 +8,7 @@ RUN go build -o main .
 
 # Runtime stage
 FROM alpine:3.24
-RUN apk --no-cache add ca-certificates
+RUN apk upgrade --no-cache && apk add --no-cache ca-certificates
 WORKDIR /root/
 COPY --from=builder /app/main .
 EXPOSE 8080
