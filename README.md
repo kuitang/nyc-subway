@@ -4,7 +4,7 @@
 
 ### Generate Protobuf Files
 ```bash
-# Install protoc-gen-go (supported Go 1.26.10)
+# Install protoc-gen-go (supported Go 1.26.11)
 GOPATH=/tmp/gopath go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12
 
 # Create output directory
