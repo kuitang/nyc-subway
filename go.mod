@@ -1,6 +1,6 @@
 module nyc-subway
 
-go 1.26.10
+go 1.26.11
 
 require (
 	github.com/bluele/gcache v0.0.2
